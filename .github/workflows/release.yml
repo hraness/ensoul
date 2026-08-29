@@ -86,10 +86,13 @@ jobs:
           fi
           source_archive="$source_directory/$source_name"
           registry_archive="$registry_directory/$registry_name"
-          python scripts/package_smoke.py --archive "$source_archive" --pack-json "$source_json"
-          python scripts/package_smoke.py --archive "$registry_archive" --pack-json "$registry_json"
-          if ! cmp --silent "$source_archive" "$registry_archive"; then
-            echo "::error::Public npm tarball differs from the tagged source artifact"
+          source_result="$(python scripts/package_smoke.py --archive "$source_archive" --pack-json "$source_json")"
+          registry_result="$(python scripts/package_smoke.py --archive "$registry_archive" --pack-json "$registry_json")"
+          printf '%s\n' "$source_result" "$registry_result"
+          source_payload_sha256="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["payloadSha256"])' "$source_result")"
+          registry_payload_sha256="$(python -c 'import json,sys; print(json.loads(sys.argv[1])["payloadSha256"])' "$registry_result")"
+          if [[ "$source_payload_sha256" != "$registry_payload_sha256" ]]; then
+            echo "::error::Public npm payload differs from the tagged source artifact"
             exit 1
           fi
 
