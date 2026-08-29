@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -15,6 +16,12 @@ SPEC = importlib.util.spec_from_file_location("prepare_x_archive", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+sys.modules["prepare_x_archive"] = MODULE
+VALIDATOR_SCRIPT = ROOT / "skills" / "ensoul" / "scripts" / "validate_source_packet.py"
+VALIDATOR_SPEC = importlib.util.spec_from_file_location("validate_source_packet", VALIDATOR_SCRIPT)
+assert VALIDATOR_SPEC and VALIDATOR_SPEC.loader
+VALIDATOR = importlib.util.module_from_spec(VALIDATOR_SPEC)
+VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 def wrapper(name: str, value: object) -> str:
@@ -96,6 +103,9 @@ class PrepareXArchiveTest(unittest.TestCase):
             self.assertNotIn("PRIVATE_DM_CANARY", serialized)
             self.assertNotIn("PRIVATE_AD_CANARY", serialized)
             self.assertEqual(stat.S_IMODE(output.stat().st_mode), 0o600)
+            receipt = VALIDATOR.validate_file(output)
+            self.assertTrue(receipt["valid"])
+            self.assertEqual(receipt["records"], 2)
 
     def test_marks_reposts_mixed_and_rejects_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -119,6 +129,87 @@ class PrepareXArchiveTest(unittest.TestCase):
             output = root / "packet.json"
             self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 2)
             self.assertFalse(output.exists())
+
+    def source_packet(self, adapter: str) -> dict[str, object]:
+        is_message = adapter == "message-like-me"
+        content = {"text": "synthetic evidence", "truncated": False}
+        record_base: dict[str, object] = {
+            "id": f"{adapter}:record:1",
+            "kind": "message" if is_message else "web_evidence",
+            "occurredAt" if is_message else "observedAt": "2026-08-20T12:00:00Z",
+            "authorRole": "subject" if is_message else "unknown",
+            "contentRole": "original" if is_message else "summary",
+            "authorshipConfidence": "strong" if is_message else "unknown",
+            "sentStatus": "sent" if is_message else "published",
+            "visibility": "private" if is_message else "public",
+            "sourceClass": "private_capture" if is_message else "public_web_evidence",
+            "content": content,
+            "provenance": {
+                "provider": adapter,
+                "operation": "synthetic-test",
+                "contentSha256": MODULE.sha256_hex(MODULE.canonical_bytes(content)),
+            },
+        }
+        record = dict(record_base)
+        record["digest"] = "sha256:" + MODULE.sha256_hex(MODULE.canonical_bytes(record_base))
+        packet_base: dict[str, object] = {
+            "schemaVersion": "ensoul.source-packet.v1",
+            "digestCanonicalization": "JCS-RFC8785",
+            "packetId": f"synthetic:{adapter}",
+            "generatedAt": "2026-08-21T12:00:00Z",
+            "subject": {
+                "localId": "synthetic-subject",
+                "kind": "owner" if is_message else "person",
+                "identityBasis": "synthetic fixture",
+            },
+            "scope": {
+                "adapter": adapter,
+                "payloadSchema": "ensoul.messages-source.v1" if is_message else "ensoul.public-enrichment-source.v1",
+                "asOf": "2026-08-21T12:00:00Z",
+                "completeness": "bounded",
+                "limits": {"recordLimit": 1},
+            },
+            "records": [record],
+            "claims": [],
+            "limitations": ["synthetic fixture"],
+        }
+        packet = dict(packet_base)
+        packet["packetDigest"] = "sha256:" + MODULE.sha256_hex(MODULE.canonical_bytes(packet_base))
+        return packet
+
+    def test_dependency_free_validator_accepts_cross_producer_packets(self) -> None:
+        for adapter in ("message-like-me", "peopleblade"):
+            with self.subTest(adapter=adapter):
+                receipt = VALIDATOR.validate_packet(self.source_packet(adapter))
+                self.assertTrue(receipt["valid"])
+                self.assertEqual(receipt["adapter"], adapter)
+
+    def test_dependency_free_validator_rejects_tampering_and_duplicate_keys(self) -> None:
+        packet = self.source_packet("message-like-me")
+        packet["records"][0]["content"]["text"] = "tampered"  # type: ignore[index]
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "content digest mismatch"):
+            VALIDATOR.validate_packet(packet)
+        duplicate = b'{"schemaVersion":"ensoul.source-packet.v1","schemaVersion":"other"}'
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "duplicate object member"):
+            VALIDATOR.strict_json_loads(duplicate)
+
+    def test_dependency_free_validator_rejects_invalid_claim_binding(self) -> None:
+        packet = self.source_packet("peopleblade")
+        packet["claims"] = [{  # type: ignore[index]
+            "id": "claim:1",
+            "text": "synthetic claim",
+            "recordIds": ["missing-record"],
+            "status": "adapter_structured",
+            "claimantRole": "adapter",
+            "claimKind": "derived_index",
+            "subjectLocalId": "synthetic-subject",
+            "sensitivity": "ordinary",
+        }]
+        packet_without_digest = dict(packet)
+        packet_without_digest.pop("packetDigest")
+        packet["packetDigest"] = "sha256:" + MODULE.sha256_hex(MODULE.canonical_bytes(packet_without_digest))
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "unknown record"):
+            VALIDATOR.validate_packet(packet)
 
 
 if __name__ == "__main__":

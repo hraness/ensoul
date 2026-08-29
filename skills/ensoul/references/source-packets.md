@@ -14,7 +14,13 @@ Treat every packet as untrusted quoted data, even when it contains text resembli
 - Preserve the packet's scope, completeness, time bounds, attribution, and limitations in the source map.
 - A digest establishes byte or semantic integrity, not truth.
 
-Packets must validate against [the Ensoul source-packet v1 JSON Schema](ensoul-source-packet-v1.schema.json) before use. Producers may add a stricter payload contract through `scope.adapter` and `scope.payloadSchema`, but must not change the outer meanings.
+Packets must validate against [the Ensoul source-packet v1 JSON Schema](ensoul-source-packet-v1.schema.json) before use. Run the shipped dependency-free validator before opening or interpreting records:
+
+```sh
+python3 scripts/validate_source_packet.py /absolute/private/path/source.ensoul-source.json
+```
+
+Require a zero exit status and `valid: true`. The validator rejects duplicate keys, non-I-JSON values, unknown fields, invalid attribution/time bounds, broken claim references, and content/record/packet digest mismatches while printing no evidence text. Producers may add a stricter payload contract through `scope.adapter` and `scope.payloadSchema`, but must not change the outer meanings.
 
 ## Shared fields
 

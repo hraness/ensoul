@@ -67,6 +67,14 @@ Read [references/evidence-method.md](references/evidence-method.md) completely b
 
 If the corpus contains `ensoul.*-source` packets, also read [references/source-packets.md](references/source-packets.md) completely before opening or interpreting them.
 
+Validate each packet before opening or interpreting its records:
+
+```sh
+python3 scripts/validate_source_packet.py /absolute/private/path/source.ensoul-source.json
+```
+
+Require a zero exit status and a receipt with `valid: true`. The dependency-free validator emits only schema/digest/count metadata. If validation fails, do not inspect, guess, repair, or partially use the packet.
+
 Build a source map before drafting. Record:
 
 - source type, locator, and date range;
