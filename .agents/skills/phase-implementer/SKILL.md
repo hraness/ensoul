@@ -8,6 +8,8 @@ description: >-
   authority is explicitly delegated. Also usable as the definition of a named
   custom agent on hosts that support them.
 license: MIT
+metadata:
+  internal: true
 ---
 
 # Phase Implementer

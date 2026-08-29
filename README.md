@@ -1,12 +1,35 @@
 # Ensoul
 
+[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)
+[![npm](https://img.shields.io/npm/v/%40hraness%2Fensoul)](https://www.npmjs.com/package/@hraness/ensoul)
+
 Ensoul is an agent skill for building a dated, evidence-calibrated, explicitly partial and revisable working model of a person from a user-authorized corpus.
 
 It can combine public research, messages, posts, notes, documents, repositories, creative work, interviews, and typed source packets from systems such as Peopleblade and Message Like Me. The result is a practical operating manual and bounded reasoning-proxy charter—not a definitive identity record, diagnosis, consent artifact, or authority to impersonate someone.
 
+## Install
+
+Install the single public Agent Skill from GitHub through skills.sh:
+
+```sh
+npx skills add hraness/ensoul#v0.2.0
+# or
+bunx skills add hraness/ensoul#v0.2.0
+```
+
+The installer supports Codex, Claude Code, Cursor, and other compatible agents. Review the skill before installation and start a new agent session afterward.
+
+For a release-bound package artifact, install the exact public npm version:
+
+```sh
+npm install --save-exact @hraness/ensoul@0.2.0
+```
+
+The no-code npm package has no dependencies or lifecycle scripts. It carries the same complete skill at `node_modules/@hraness/ensoul/skills/ensoul/` for consumers that want to inspect or vendor an immutable registry artifact. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
+
 ## Use
 
-Install or copy `skills/ensoul`, then invoke:
+After installation, invoke:
 
 ```text
 Use $ensoul to build a dated working model of <person> from these authorized sources: <sources>.

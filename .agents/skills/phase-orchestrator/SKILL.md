@@ -9,6 +9,8 @@ description: >-
   a plan, checklist, PRD, or phase document and asks for delegated multi-agent
   execution across phases.
 license: MIT
+metadata:
+  internal: true
 ---
 
 # Phase Orchestrator

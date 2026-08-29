@@ -1,0 +1,49 @@
+{
+  "name": "@hraness/ensoul",
+  "version": "0.2.0",
+  "description": "A privacy-bounded Agent Skill for dated, evidence-calibrated whole-person working models.",
+  "license": "MIT",
+  "private": false,
+  "contentPolicy": {
+    "class": "dual-use"
+  },
+  "packageManager": "npm@11.19.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hraness/ensoul.git"
+  },
+  "homepage": "https://github.com/hraness/ensoul#readme",
+  "bugs": {
+    "url": "https://github.com/hraness/ensoul/issues"
+  },
+  "keywords": [
+    "agent-skill",
+    "agent-skills",
+    "ai-agents",
+    "coding-agents",
+    "person-model",
+    "personal-operating-manual",
+    "digital-twin",
+    "evidence",
+    "privacy",
+    "codex",
+    "claude-code",
+    "cursor"
+  ],
+  "files": [
+    "LICENSE",
+    "README.md",
+    "VERSION",
+    "schema",
+    "skills/ensoul/agents",
+    "skills/ensoul/LICENSE",
+    "skills/ensoul/NOTICE.md",
+    "skills/ensoul/references",
+    "skills/ensoul/scripts/*.py",
+    "skills/ensoul/SKILL.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}
