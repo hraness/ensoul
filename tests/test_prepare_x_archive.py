@@ -119,6 +119,17 @@ class PrepareXArchiveTest(unittest.TestCase):
             self.assertEqual(repost["contentRole"], "forwarded")
             self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 2)
 
+    def test_rejects_a_limit_above_the_packet_record_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = self.make_archive(root)
+            output = root / "posts.ensoul-source.json"
+            self.assertEqual(
+                MODULE.main([str(archive), "--output", str(output), "--limit", "2001"]),
+                2,
+            )
+            self.assertFalse(output.exists())
+
     def test_rejects_traversal_even_when_unselected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
