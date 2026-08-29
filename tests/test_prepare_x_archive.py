@@ -177,6 +177,21 @@ class PrepareXArchiveTest(unittest.TestCase):
         packet["packetDigest"] = "sha256:" + MODULE.sha256_hex(MODULE.canonical_bytes(packet_base))
         return packet
 
+    def redigest_packet(self, packet: dict[str, object], *, records: bool = False) -> None:
+        if records:
+            for raw_record in packet["records"]:  # type: ignore[index]
+                record = raw_record  # type: ignore[assignment]
+                record_without_digest = dict(record)
+                record_without_digest.pop("digest")
+                record["digest"] = "sha256:" + MODULE.sha256_hex(
+                    MODULE.canonical_bytes(record_without_digest)
+                )
+        packet_without_digest = dict(packet)
+        packet_without_digest.pop("packetDigest")
+        packet["packetDigest"] = "sha256:" + MODULE.sha256_hex(
+            MODULE.canonical_bytes(packet_without_digest)
+        )
+
     def test_dependency_free_validator_accepts_cross_producer_packets(self) -> None:
         for adapter in ("message-like-me", "peopleblade"):
             with self.subTest(adapter=adapter):
@@ -210,6 +225,67 @@ class PrepareXArchiveTest(unittest.TestCase):
         packet["packetDigest"] = "sha256:" + MODULE.sha256_hex(MODULE.canonical_bytes(packet_without_digest))
         with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "unknown record"):
             VALIDATOR.validate_packet(packet)
+
+    def test_dependency_free_validator_rejects_inverted_empty_bounds(self) -> None:
+        packet = self.source_packet("peopleblade")
+        packet["records"] = []
+        packet["scope"]["limits"] = {  # type: ignore[index]
+            "afterInclusive": "2026-08-21T00:00:00Z",
+            "beforeExclusive": "2026-08-20T00:00:00Z",
+        }
+        self.redigest_packet(packet)
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "lower bound must be earlier"):
+            VALIDATOR.validate_packet(packet)
+
+    def test_dependency_free_validator_rejects_conflicting_bound_aliases(self) -> None:
+        packet = self.source_packet("message-like-me")
+        packet["scope"]["limits"] = {  # type: ignore[index]
+            "after": "2026-08-01T00:00:00Z",
+            "afterInclusive": "2026-08-02T00:00:00Z",
+        }
+        self.redigest_packet(packet)
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "two lower-bound aliases"):
+            VALIDATOR.validate_packet(packet)
+
+    def test_dependency_free_validator_rejects_evidence_after_cutoffs(self) -> None:
+        for key, cutoff in (
+            ("asOf", "2026-08-19T12:00:00Z"),
+            ("sourceCutoff", "2026-08-19T12:00:00Z"),
+        ):
+            with self.subTest(key=key):
+                packet = self.source_packet("peopleblade")
+                packet["scope"][key] = cutoff  # type: ignore[index]
+                self.redigest_packet(packet)
+                with self.assertRaisesRegex(VALIDATOR.PacketValidationError, key):
+                    VALIDATOR.validate_packet(packet)
+
+    def test_dependency_free_validator_rejects_inverted_record_times(self) -> None:
+        packet = self.source_packet("peopleblade")
+        record = packet["records"][0]  # type: ignore[index]
+        record["occurredAt"] = "2026-08-20T13:00:00Z"  # type: ignore[index]
+        self.redigest_packet(packet, records=True)
+        with self.assertRaisesRegex(VALIDATOR.PacketValidationError, "occurredAt must not be later"):
+            VALIDATOR.validate_packet(packet)
+
+    def test_dependency_free_validator_rejects_inverted_scope_times(self) -> None:
+        cases = (
+            ({"asOf": "2026-08-22T12:00:00Z"}, "later than generatedAt"),
+            ({"sourceCutoff": "2026-08-22T12:00:00Z"}, "later than generatedAt"),
+            (
+                {
+                    "asOf": "2026-08-21T10:00:00Z",
+                    "sourceCutoff": "2026-08-21T11:00:00Z",
+                },
+                "later than scope.asOf",
+            ),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                packet = self.source_packet("message-like-me")
+                packet["scope"].update(overrides)  # type: ignore[index]
+                self.redigest_packet(packet)
+                with self.assertRaisesRegex(VALIDATOR.PacketValidationError, expected):
+                    VALIDATOR.validate_packet(packet)
 
 
 if __name__ == "__main__":

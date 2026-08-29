@@ -179,6 +179,24 @@ def validate_subject(value: object) -> dict[str, object]:
     return subject
 
 
+def effective_bounds(limits: dict[str, object]) -> tuple[dt.datetime | None, dt.datetime | None]:
+    direct_after = limits.get("after") if isinstance(limits.get("after"), str) else None
+    alias_after = limits.get("afterInclusive") if isinstance(limits.get("afterInclusive"), str) else None
+    direct_before = limits.get("before") if isinstance(limits.get("before"), str) else None
+    alias_before = limits.get("beforeExclusive") if isinstance(limits.get("beforeExclusive"), str) else None
+    if direct_after is not None and alias_after is not None:
+        fail("scope.limits", "declares two lower-bound aliases")
+    if direct_before is not None and alias_before is not None:
+        fail("scope.limits", "declares two upper-bound aliases")
+    lower_raw = direct_after if direct_after is not None else alias_after
+    upper_raw = direct_before if direct_before is not None else alias_before
+    lower = parse_datetime(lower_raw, "scope.limits lower bound") if lower_raw is not None else None
+    upper = parse_datetime(upper_raw, "scope.limits upper bound") if upper_raw is not None else None
+    if lower is not None and upper is not None and lower >= upper:
+        fail("scope.limits", "lower bound must be earlier than upper bound")
+    return lower, upper
+
+
 def validate_limits(value: object) -> dict[str, object]:
     limits = expect_dict(value, "scope.limits")
     if len(limits) > 24:
@@ -191,15 +209,13 @@ def validate_limits(value: object) -> dict[str, object]:
     for name in ("after", "afterInclusive", "before", "beforeExclusive"):
         if name in limits and isinstance(limits[name], str):
             parse_datetime(limits[name], f"scope.limits.{name}")
-    after_value = limits.get("after")
-    before_value = limits.get("before")
-    if isinstance(after_value, str) and isinstance(before_value, str):
-        if parse_datetime(after_value, "scope.limits.after") >= parse_datetime(before_value, "scope.limits.before"):
-            fail("scope.limits", "after must be earlier than before")
+    effective_bounds(limits)
     return limits
 
 
-def validate_scope(value: object) -> tuple[dict[str, object], dict[str, object]]:
+def validate_scope(
+    value: object,
+) -> tuple[dict[str, object], dict[str, object], dt.datetime | None, dt.datetime | None]:
     scope = expect_dict(value, "scope")
     exact_keys(
         scope,
@@ -210,12 +226,15 @@ def validate_scope(value: object) -> tuple[dict[str, object], dict[str, object]]
     expect_string(scope["adapter"], "scope.adapter", 1, 100)
     expect_string(scope["payloadSchema"], "scope.payloadSchema", 1, 160)
     expect_enum(scope["completeness"], "scope.completeness", {"complete", "sampled", "bounded", "unknown"})
-    for key in ("asOf", "sourceCutoff"):
-        if key in scope:
-            parse_datetime(scope[key], f"scope.{key}")
+    as_of = parse_datetime(scope["asOf"], "scope.asOf") if "asOf" in scope else None
+    source_cutoff = (
+        parse_datetime(scope["sourceCutoff"], "scope.sourceCutoff")
+        if "sourceCutoff" in scope
+        else None
+    )
     if "sourceRevision" in scope:
         expect_string(scope["sourceRevision"], "scope.sourceRevision", 1, 300)
-    return scope, validate_limits(scope["limits"])
+    return scope, validate_limits(scope["limits"]), as_of, source_cutoff
 
 
 def validate_content(value: object, path: str) -> dict[str, object]:
@@ -261,7 +280,10 @@ def validate_provenance(value: object, path: str, content: dict[str, object]) ->
         fail(path, "content digest mismatch")
 
 
-def validate_record(value: object, index: int) -> tuple[dict[str, object], dt.datetime | None]:
+def validate_record(
+    value: object,
+    index: int,
+) -> tuple[dict[str, object], dt.datetime | None, dt.datetime | None]:
     path = f"records[{index}]"
     record = expect_dict(value, path)
     required = {
@@ -284,8 +306,7 @@ def validate_record(value: object, index: int) -> tuple[dict[str, object], dt.da
         "third_party_description", "institutional", "metadata",
     })
     occurred = parse_datetime(record["occurredAt"], f"{path}.occurredAt") if "occurredAt" in record else None
-    if "observedAt" in record:
-        parse_datetime(record["observedAt"], f"{path}.observedAt")
+    observed = parse_datetime(record["observedAt"], f"{path}.observedAt") if "observedAt" in record else None
     content = validate_content(record["content"], f"{path}.content")
     validate_provenance(record["provenance"], f"{path}.provenance", content)
     without_digest = dict(record)
@@ -296,7 +317,7 @@ def validate_record(value: object, index: int) -> tuple[dict[str, object], dt.da
         fail(path, str(exc))
     if digest != expected:
         fail(path, "record digest mismatch")
-    return record, occurred
+    return record, occurred, observed
 
 
 def validate_claims(
@@ -352,36 +373,45 @@ def validate_packet(value: object) -> dict[str, object]:
     if packet["digestCanonicalization"] != "JCS-RFC8785":
         fail("digestCanonicalization", "unsupported digest canonicalization")
     expect_string(packet["packetId"], "packetId", 8, 160)
-    parse_datetime(packet["generatedAt"], "generatedAt")
+    generated_at = parse_datetime(packet["generatedAt"], "generatedAt")
     subject = validate_subject(packet["subject"])
-    scope, limits = validate_scope(packet["scope"])
+    scope, limits, as_of, source_cutoff = validate_scope(packet["scope"])
+    if as_of is not None and as_of > generated_at:
+        fail("scope.asOf", "must not be later than generatedAt")
+    if source_cutoff is not None and source_cutoff > generated_at:
+        fail("scope.sourceCutoff", "must not be later than generatedAt")
+    if source_cutoff is not None and as_of is not None and source_cutoff > as_of:
+        fail("scope.sourceCutoff", "must not be later than scope.asOf")
     records = expect_list(packet["records"], "records")
     if len(records) > 2_000:
         fail("records", "has too many items")
     record_ids: set[str] = set()
-    occurred_values: list[dt.datetime] = []
+    time_values: list[tuple[dt.datetime | None, dt.datetime | None]] = []
     for index, raw in enumerate(records):
-        record, occurred = validate_record(raw, index)
+        record, occurred, observed = validate_record(raw, index)
         record_id = str(record["id"])
         if record_id in record_ids:
             fail(f"records[{index}].id", "duplicates another record id")
         record_ids.add(record_id)
-        if occurred is not None:
-            occurred_values.append(occurred)
-    after_raw = limits.get("after")
-    if not isinstance(after_raw, str) and isinstance(limits.get("afterInclusive"), str):
-        after_raw = limits.get("afterInclusive")
-    before_raw = limits.get("before")
-    if not isinstance(before_raw, str) and isinstance(limits.get("beforeExclusive"), str):
-        before_raw = limits.get("beforeExclusive")
-    if isinstance(after_raw, str):
-        after = parse_datetime(after_raw, "scope.limits.after")
-        if any(value < after for value in occurred_values):
-            fail("records", "contains an occurredAt before the declared lower bound")
-    if isinstance(before_raw, str):
-        before = parse_datetime(before_raw, "scope.limits.before")
-        if any(value >= before for value in occurred_values):
-            fail("records", "contains an occurredAt at or after the declared upper bound")
+        time_values.append((occurred, observed))
+    lower, upper = effective_bounds(limits)
+    for index, (occurred, observed) in enumerate(time_values):
+        if occurred is not None and observed is not None and occurred > observed:
+            fail(f"records[{index}]", "occurredAt must not be later than observedAt")
+        for label, value in (("occurredAt", occurred), ("observedAt", observed)):
+            if value is None:
+                continue
+            if value > generated_at:
+                fail(f"records[{index}].{label}", "must not be later than generatedAt")
+            if as_of is not None and value > as_of:
+                fail(f"records[{index}].{label}", "must not be later than scope.asOf")
+            if source_cutoff is not None and value > source_cutoff:
+                fail(f"records[{index}].{label}", "must not be later than scope.sourceCutoff")
+        effective_time = occurred if occurred is not None else observed
+        if effective_time is not None and lower is not None and effective_time < lower:
+            fail(f"records[{index}]", "evidence time is before the declared lower bound")
+        if effective_time is not None and upper is not None and effective_time >= upper:
+            fail(f"records[{index}]", "evidence time is at or after the declared upper bound")
     limitations = expect_list(packet["limitations"], "limitations")
     if len(limitations) < 1 or len(limitations) > 32:
         fail("limitations", "has an invalid item count")
