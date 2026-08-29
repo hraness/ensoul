@@ -29,7 +29,11 @@ MAX_SELECTED_TOTAL_BYTES = 512 * 1024 * 1024
 MAX_COMPRESSION_RATIO = 1_000
 MAX_POSTS = 2_000
 MAX_TEXT_CHARS = 50_000
+MAX_RECORD_CONTENT_BYTES = 32 * 1024
+MAX_TOTAL_CONTENT_BYTES = MAX_POSTS * MAX_RECORD_CONTENT_BYTES
+MAX_PACKET_BYTES = 128 * 1024 * 1024
 TWEET_MEMBER = re.compile(r"(?:^|/)data/tweets(?:-part\d+)?\.js$")
+POST_ID = re.compile(r"^[0-9]{1,20}$", re.ASCII)
 JS_PREFIX = re.compile(
     r"^\s*(?:window\.)?YTD\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\s*=\s*",
     re.ASCII,
@@ -181,6 +185,26 @@ def classify_post(tweet: dict[str, object], text: str) -> tuple[str, str]:
     return "post", "subject"
 
 
+def bounded_content(text: str) -> dict[str, object]:
+    candidate = text[:MAX_TEXT_CHARS]
+    truncated = len(candidate) != len(text)
+
+    def content(prefix: str, was_truncated: bool) -> dict[str, object]:
+        return {"text": prefix, "truncated": was_truncated}
+
+    if len(canonical_bytes(content(candidate, truncated))) <= MAX_RECORD_CONTENT_BYTES:
+        return content(candidate, truncated)
+    low = 0
+    high = len(candidate)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(canonical_bytes(content(candidate[:middle], True))) <= MAX_RECORD_CONTENT_BYTES:
+            low = middle
+        else:
+            high = middle - 1
+    return content(candidate[:low], True)
+
+
 def post_record(raw: object, member_name: str) -> dict[str, object] | None:
     if not isinstance(raw, dict):
         return None
@@ -192,15 +216,14 @@ def post_record(raw: object, member_name: str) -> dict[str, object] | None:
     if not isinstance(post_id, (str, int)) or not isinstance(text, str):
         return None
     post_id_text = str(post_id).strip()
-    if not post_id_text or not text.strip():
+    if POST_ID.fullmatch(post_id_text) is None or not text.strip():
         return None
-    truncated = len(text) > MAX_TEXT_CHARS
-    bounded_text = text[:MAX_TEXT_CHARS]
+    content = bounded_content(text)
+    bounded_text = str(content["text"])
     kind, author_role = classify_post(candidate, bounded_text)
     occurred_at = parse_created_at(candidate.get("created_at"))
     if occurred_at is None:
         return None
-    content: dict[str, object] = {"text": bounded_text, "truncated": truncated}
     content_hash = sha256_hex(canonical_bytes(content))
     semantic: dict[str, object] = {
         "id": f"x:{post_id_text}",
@@ -246,14 +269,19 @@ def build_packet(
     records: list[dict[str, object]] = []
     malformed = 0
     duplicate_ids = 0
+    input_records = 0
+    selected_member_count = 0
     with zipfile.ZipFile(archive_path, "r") as archive:
         members = selected_members(archive)
+        selected_member_count = len(members)
         for info in members:
             data = read_bounded(archive, info)
             selected_hash.update(info.filename.encode("utf-8"))
             selected_hash.update(b"\x00")
             selected_hash.update(data)
-            for raw in parse_js_array(data, info.filename):
+            raw_records = parse_js_array(data, info.filename)
+            input_records += len(raw_records)
+            for raw in raw_records:
                 record = post_record(raw, info.filename)
                 if record is None:
                     malformed += 1
@@ -264,6 +292,12 @@ def build_packet(
     for record in records:
         record_id = str(record["id"])
         if record_id in by_id:
+            previous = dict(by_id[record_id])
+            current = dict(record)
+            previous.pop("_member", None)
+            current.pop("_member", None)
+            if previous != current:
+                raise ArchiveError("archive contains conflicting records for one post ID")
             duplicate_ids += 1
             continue
         by_id[record_id] = record
@@ -287,15 +321,29 @@ def build_packet(
     for record in records:
         record.pop("_member", None)
 
+    content_bytes = sum(len(canonical_bytes(record["content"])) for record in records)
+    if content_bytes > MAX_TOTAL_CONTENT_BYTES:
+        raise ArchiveError("selected post content exceeds the aggregate safety limit")
+
     revision = selected_hash.hexdigest()
     generated_at = dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
     latest = max((str(record.get("occurredAt")) for record in records if record.get("occurredAt")), default=None)
+    if latest is not None and dt.datetime.fromisoformat(latest.replace("Z", "+00:00")) > dt.datetime.fromisoformat(
+        generated_at.replace("Z", "+00:00")
+    ):
+        raise ArchiveError("selected posts contain an occurrence time later than packet generation")
     limits: dict[str, object] = {
         "maxRecords": limit,
         "eligibleRecords": eligible_count,
         "selection": "chronological-even-sample",
         "afterInclusive": after.isoformat().replace("+00:00", "Z") if after else None,
         "beforeExclusive": before.isoformat().replace("+00:00", "Z") if before else None,
+        "contentBytes": content_bytes,
+        "maxContentBytes": MAX_TOTAL_CONTENT_BYTES,
+        "selectedMembers": selected_member_count,
+        "inputRecords": input_records,
+        "malformedRecordsSkipped": malformed,
+        "exactDuplicateRecordsSkipped": duplicate_ids,
     }
     packet: dict[str, object] = {
         "schemaVersion": SCHEMA_VERSION,
@@ -310,7 +358,11 @@ def build_packet(
         "scope": {
             "adapter": "x-archive",
             "payloadSchema": PAYLOAD_SCHEMA,
-            "completeness": "complete" if eligible_count <= limit else "sampled",
+            "completeness": (
+                "sampled" if eligible_count > limit
+                else "bounded" if malformed > 0 or duplicate_ids > 0
+                else "complete"
+            ),
             "sourceRevision": "sha256:" + revision,
             "limits": limits,
         },
@@ -332,6 +384,11 @@ def build_packet(
         "eligibleRecords": eligible_count,
         "malformedRecordsSkipped": malformed,
         "duplicateIdsSkipped": duplicate_ids,
+        "contentBytes": content_bytes,
+        "maxContentBytes": MAX_TOTAL_CONTENT_BYTES,
+        "selectedMembers": selected_member_count,
+        "inputRecords": input_records,
+        "exactDuplicateRecordsSkipped": duplicate_ids,
         "sourceRevision": packet["scope"]["sourceRevision"],  # type: ignore[index]
     }
     return packet, receipt
@@ -395,6 +452,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ArchiveError("--after must be earlier than --before")
         packet, receipt = build_packet(args.archive, limit=args.limit, after=after, before=before)
         payload = json.dumps(packet, ensure_ascii=False, indent=2).encode("utf-8") + b"\n"
+        if len(payload) > MAX_PACKET_BYTES:
+            raise ArchiveError("prepared packet exceeds the 128 MiB output safety limit")
         write_private_atomic(args.output, payload)
         receipt["output"] = str(args.output)
         print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))

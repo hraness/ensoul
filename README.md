@@ -31,7 +31,7 @@ python3 skills/ensoul/scripts/prepare_x_archive.py \
   --limit 2000
 ```
 
-The archive and output paths must be absolute. The command refuses overwrite and symlink traversal, writes the packet at mode `0600`, emits only a body-free receipt to stdout, and samples evenly when the archive contains more eligible posts than the requested bound.
+The archive and output paths must be absolute. The command refuses overwrite and symlink traversal, writes the packet at mode `0600`, emits only a body-free receipt to stdout, and samples evenly when the archive contains more eligible posts than the requested bound. It caps records at 2,000, bounds both per-record and aggregate content bytes, refuses packets above 128 MiB, fails on conflicting post IDs, and keeps malformed/exact-duplicate omission counts inside the packet scope.
 
 Before interpreting any source packet, validate it offline:
 

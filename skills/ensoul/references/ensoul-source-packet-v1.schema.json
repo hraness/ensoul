@@ -69,11 +69,21 @@
         "limits": {
           "type": "object",
           "additionalProperties": {
-            "type": ["string", "integer", "boolean", "null"],
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991
+            "anyOf": [
+              {
+                "type": ["string", "integer", "boolean", "null"],
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+              }
+            ]
           },
-          "maxProperties": 24
+          "maxProperties": 32
         }
       }
     },

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,6 +85,10 @@ class PrepareXArchiveTest(unittest.TestCase):
             self.assertEqual(packet["records"][0]["contentRole"], "original")
             self.assertEqual(packet["records"][0]["authorshipConfidence"], "strong")
             self.assertEqual(packet["records"][0]["sentStatus"], "published")
+            self.assertEqual(packet["scope"]["limits"]["selectedMembers"], 1)
+            self.assertEqual(packet["scope"]["limits"]["inputRecords"], 3)
+            self.assertEqual(packet["scope"]["limits"]["malformedRecordsSkipped"], 0)
+            self.assertEqual(packet["scope"]["limits"]["exactDuplicateRecordsSkipped"], 0)
             packet_without_digest = dict(packet)
             packet_digest = packet_without_digest.pop("packetDigest")
             self.assertEqual(
@@ -128,6 +135,72 @@ class PrepareXArchiveTest(unittest.TestCase):
                 MODULE.main([str(archive), "--output", str(output), "--limit", "2001"]),
                 2,
             )
+            self.assertFalse(output.exists())
+
+    def test_bounds_multibyte_and_escaped_content_by_emitted_bytes(self) -> None:
+        content = MODULE.bounded_content(("\u0000\U0001f642" * 20_000) + "tail")
+        self.assertTrue(content["truncated"])
+        self.assertLessEqual(
+            len(MODULE.canonical_bytes(content)),
+            MODULE.MAX_RECORD_CONTENT_BYTES,
+        )
+
+    def test_refuses_to_emit_a_packet_over_the_validator_file_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = self.make_archive(root)
+            output = root / "posts.ensoul-source.json"
+            original = MODULE.MAX_PACKET_BYTES
+            MODULE.MAX_PACKET_BYTES = 128
+            try:
+                self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 2)
+            finally:
+                MODULE.MAX_PACKET_BYTES = original
+            self.assertFalse(output.exists())
+
+    def test_rejects_future_dated_evidence_before_emitting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = root / "future.zip"
+            posts = [{"tweet": {
+                "id_str": "999",
+                "created_at": "Mon Jan 01 12:00:00 +0000 2999",
+                "full_text": "future-dated evidence",
+            }}]
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+                zipped.writestr("data/tweets.js", wrapper("tweets", posts))
+            output = root / "posts.ensoul-source.json"
+            self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 2)
+            self.assertFalse(output.exists())
+
+    def test_marks_malformed_foreign_ids_as_a_bounded_omission(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = root / "foreign-id.zip"
+            posts = [
+                {"tweet": {"id_str": "valid-looking-but-foreign", "created_at": "2024-01-01T00:00:00Z", "full_text": "skip me"}},
+                {"tweet": {"id_str": "123", "created_at": "2024-01-02T00:00:00Z", "full_text": "keep me"}},
+            ]
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+                zipped.writestr("data/tweets.js", wrapper("tweets", posts))
+            output = root / "posts.ensoul-source.json"
+            self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 0)
+            packet = json.loads(output.read_text())
+            self.assertEqual(packet["scope"]["completeness"], "bounded")
+            self.assertEqual(packet["scope"]["limits"]["malformedRecordsSkipped"], 1)
+
+    def test_rejects_conflicting_duplicate_post_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            archive = root / "conflict.zip"
+            posts = [
+                {"tweet": {"id_str": "123", "created_at": "2024-01-01T00:00:00Z", "full_text": "first"}},
+                {"tweet": {"id_str": "123", "created_at": "2024-01-01T00:00:00Z", "full_text": "conflict"}},
+            ]
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+                zipped.writestr("data/tweets.js", wrapper("tweets", posts))
+            output = root / "posts.ensoul-source.json"
+            self.assertEqual(MODULE.main([str(archive), "--output", str(output)]), 2)
             self.assertFalse(output.exists())
 
     def test_rejects_traversal_even_when_unselected(self) -> None:
@@ -178,7 +251,10 @@ class PrepareXArchiveTest(unittest.TestCase):
                 "payloadSchema": "ensoul.messages-source.v1" if is_message else "ensoul.public-enrichment-source.v1",
                 "asOf": "2026-08-21T12:00:00Z",
                 "completeness": "bounded",
-                "limits": {"recordLimit": 1},
+                "limits": {
+                    "recordLimit": 1,
+                    **({"services": ["SMS", "iMessage"]} if adapter == "peopleblade" else {}),
+                },
             },
             "records": [record],
             "claims": [],
@@ -209,6 +285,27 @@ class PrepareXArchiveTest(unittest.TestCase):
                 receipt = VALIDATOR.validate_packet(self.source_packet(adapter))
                 self.assertTrue(receipt["valid"])
                 self.assertEqual(receipt["adapter"], adapter)
+
+    def test_validator_does_not_mutate_an_installed_skill_with_bytecode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            scripts = root / "scripts"
+            scripts.mkdir()
+            shutil.copy2(SCRIPT, scripts / SCRIPT.name)
+            shutil.copy2(VALIDATOR_SCRIPT, scripts / VALIDATOR_SCRIPT.name)
+            packet_path = root / "packet.json"
+            packet_path.write_text(json.dumps(self.source_packet("peopleblade")), encoding="utf-8")
+            environment = dict(os.environ)
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            result = subprocess.run(
+                [sys.executable, str(scripts / VALIDATOR_SCRIPT.name), str(packet_path)],
+                check=False,
+                capture_output=True,
+                env=environment,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((scripts / "__pycache__").exists())
 
     def test_dependency_free_validator_rejects_tampering_and_duplicate_keys(self) -> None:
         packet = self.source_packet("message-like-me")

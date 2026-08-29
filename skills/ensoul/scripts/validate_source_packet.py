@@ -13,6 +13,7 @@ import sys
 from typing import NoReturn
 from urllib.parse import urlsplit
 
+sys.dont_write_bytecode = True
 from prepare_x_archive import ArchiveError, canonical_bytes, sha256_hex
 
 
@@ -199,11 +200,17 @@ def effective_bounds(limits: dict[str, object]) -> tuple[dt.datetime | None, dt.
 
 def validate_limits(value: object) -> dict[str, object]:
     limits = expect_dict(value, "scope.limits")
-    if len(limits) > 24:
+    if len(limits) > 32:
         fail("scope.limits", "has too many members")
     for key, member in limits.items():
         expect_string(key, "scope.limits key", 1, 200)
-        if member is not None and not isinstance(member, (str, int, bool)):
+        if isinstance(member, list):
+            if len(member) > 32:
+                fail(f"scope.limits.{key}", "has too many array items")
+            values = [expect_string(item, f"scope.limits.{key}[]", 1, 200) for item in member]
+            if len(values) != len(set(values)):
+                fail(f"scope.limits.{key}", "contains duplicate array items")
+        elif member is not None and not isinstance(member, (str, int, bool)):
             fail(f"scope.limits.{key}", "has a disallowed value type")
         reject_non_ijson(member, f"scope.limits.{key}")
     for name in ("after", "afterInclusive", "before", "beforeExclusive"):

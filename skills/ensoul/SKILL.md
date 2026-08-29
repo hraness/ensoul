@@ -101,7 +101,7 @@ For a large corpus:
 
 Do not claim exhaustive reading when sampling. State coverage honestly.
 
-Optional subagents may summarize bounded source strata for very large corpora. Give each only its assigned artifacts and require paths, dates, attribution, candidate patterns, counterevidence, and confidence. The main agent must inspect high-weight sources itself and owns synthesis.
+Optional subagents may summarize bounded source strata for very large corpora. Give each only its assigned artifacts and require paths, dates, attribution, candidate patterns, counterevidence, and confidence. Never delegate private packets or private content unless the user explicitly authorizes that exact additional environment and data scope; Message Like Me packets remain with the main agent by default. The main agent must inspect high-weight sources itself and owns synthesis.
 
 ### 4. Build an evidence ledger
 

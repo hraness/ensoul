@@ -35,6 +35,12 @@ Require a zero exit status and `valid: true`. The validator rejects duplicate ke
 - `limitations`: producer-known gaps and attribution warnings.
 - `packetDigest`: lowercase `sha256:` digest under the normative procedure below.
 
+`scope.limits` may contain bounded strings, interoperable integers, booleans,
+nulls, or short unique arrays of bounded strings such as redacted channel
+labels. Treat omission and conflict counts as part of completeness; a producer
+must not describe a packet as complete after silently discarding malformed or
+ambiguous records.
+
 ### Normative digest procedure
 
 To compute `packetDigest`, remove only the top-level `packetDigest` member, canonicalize the remaining JSON exactly according to RFC 8785 JSON Canonicalization Scheme, encode the canonical result as UTF-8 without a BOM, compute SHA-256 over those bytes, render lowercase hexadecimal, and prefix `sha256:`. Reject packets with an absent or unknown canonicalization identifier or a digest mismatch; never guess or silently repair canonicalization.
