@@ -82,7 +82,12 @@ def verify_pack_receipt(archive: Path, receipt_path: Path) -> dict[str, object]:
     return record
 
 
-def verify_archive(archive: Path, record: dict[str, object]) -> None:
+def add_digest_field(digest, value: bytes) -> None:
+    digest.update(len(value).to_bytes(8, byteorder="big"))
+    digest.update(value)
+
+
+def verify_archive(archive: Path, record: dict[str, object]) -> str:
     reported_files = record.get("files")
     if not isinstance(reported_files, list):
         fail("npm pack receipt files must be a list")
@@ -110,6 +115,7 @@ def verify_archive(archive: Path, record: dict[str, object]) -> None:
         fail(f"npm package inventory differs from source (missing={missing}, extra={extra})")
 
     unpacked_bytes = 0
+    payload_digest = hashlib.sha256(b"ensoul-package-payload-v1\0")
     with tarfile.open(archive, mode="r:gz") as package_archive:
         archive_by_path: dict[str, tarfile.TarInfo] = {}
         for member in package_archive.getmembers():
@@ -124,7 +130,8 @@ def verify_archive(archive: Path, record: dict[str, object]) -> None:
         if set(archive_by_path) != source_paths:
             fail("npm archive inventory differs from the npm pack receipt")
 
-        for path, member in archive_by_path.items():
+        for path in sorted(archive_by_path):
+            member = archive_by_path[path]
             reported = reported_by_path[path]
             if reported.get("size") != member.size:
                 fail(f"npm archive size differs for {path}")
@@ -143,10 +150,17 @@ def verify_archive(archive: Path, record: dict[str, object]) -> None:
             elif packaged_bytes != (ROOT / path).read_bytes():
                 fail(f"npm archive bytes differ from source: {path}")
 
+            add_digest_field(payload_digest, path.encode("utf-8"))
+            add_digest_field(payload_digest, b"regular-file")
+            add_digest_field(payload_digest, member.mode.to_bytes(4, byteorder="big"))
+            add_digest_field(payload_digest, member.size.to_bytes(8, byteorder="big"))
+            add_digest_field(payload_digest, packaged_bytes)
+
     if unpacked_bytes != record.get("unpackedSize"):
         fail("npm pack receipt unpacked size is inconsistent")
     if unpacked_bytes > MAXIMUM_UNPACKED_BYTES:
         fail("npm package exceeds the unpacked-size limit")
+    return payload_digest.hexdigest()
 
 
 def verify_clean_install(archive: Path) -> None:
@@ -168,6 +182,7 @@ def verify_clean_install(archive: Path) -> None:
             ],
             cwd=consumer,
             check=True,
+            stdout=subprocess.DEVNULL,
         )
         installed_root = consumer / "node_modules" / "@hraness" / "ensoul"
         for relative in (Path("skills/ensoul"), Path("schema")):
@@ -191,7 +206,7 @@ def main() -> None:
     if not pack_json.is_file() or pack_json.is_symlink():
         fail("pack receipt must be a regular non-symlink file")
     record = verify_pack_receipt(archive, pack_json)
-    verify_archive(archive, record)
+    payload_sha256 = verify_archive(archive, record)
     verify_clean_install(archive)
     print(
         json.dumps(
@@ -199,6 +214,7 @@ def main() -> None:
                 "files": record["entryCount"],
                 "name": record["name"],
                 "packedBytes": record["size"],
+                "payloadSha256": payload_sha256,
                 "valid": True,
                 "version": record["version"],
             },
