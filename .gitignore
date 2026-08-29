@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.ensoul-source.json
+*-ensoul.md
+.DS_Store
+
