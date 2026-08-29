@@ -1,6 +1,6 @@
 # Ensoul
 
-[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)
+[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul/ensoul)
 [![npm](https://img.shields.io/npm/v/%40hraness%2Fensoul)](https://www.npmjs.com/package/@hraness/ensoul)
 
 Ensoul is an agent skill for building a dated, evidence-calibrated, explicitly partial and revisable working model of a person from a user-authorized corpus.
@@ -12,9 +12,9 @@ It can combine public research, messages, posts, notes, documents, repositories,
 Install the single public Agent Skill from GitHub through skills.sh:
 
 ```sh
-npx skills add hraness/ensoul#v0.2.0
+npx skills add hraness/ensoul#v0.2.0 --skill ensoul
 # or
-bunx skills add hraness/ensoul#v0.2.0
+bunx skills add hraness/ensoul#v0.2.0 --skill ensoul
 ```
 
 The installer supports Codex, Claude Code, Cursor, and other compatible agents. Review the skill before installation and start a new agent session afterward.
