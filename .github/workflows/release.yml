@@ -109,14 +109,14 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       GH_TOKEN: ${{ github.token }}
+      IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}
       VERIFIED_TAG: ${{ needs.verify.outputs.verified_tag }}
     steps:
       - name: Require immutable releases before publication
         run: |
           set -euo pipefail
-          immutable_releases="$(gh api "/repos/$GITHUB_REPOSITORY/immutable-releases" --jq '.enabled')"
-          if [[ "$immutable_releases" != "true" ]]; then
-            echo "::error::Repository immutable releases must be enabled before creating $GITHUB_REF_NAME"
+          if [[ "$IMMUTABLE_RELEASES_ENABLED" != "true" ]]; then
+            echo "::error::An administrator must enable immutable releases and set the IMMUTABLE_RELEASES_ENABLED repository variable to true before creating $GITHUB_REF_NAME"
             exit 1
           fi
       - name: Publish verified GitHub release

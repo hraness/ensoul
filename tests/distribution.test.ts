@@ -93,6 +93,8 @@ describe("delivery policy", () => {
     expect(workflow).toContain('npm pack "$package_name@$package_version"');
     expect(workflow).toContain("source_payload_sha256");
     expect(workflow).toContain("registry_payload_sha256");
+    expect(workflow).toContain("IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}");
+    expect(workflow).not.toContain('gh api "/repos/$GITHUB_REPOSITORY/immutable-releases"');
     expect(workflow.indexOf("Require immutable releases before publication"))
       .toBeLessThan(workflow.indexOf('gh release create "$GITHUB_REF_NAME"'));
   });
