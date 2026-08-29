@@ -69,8 +69,15 @@ class DistributionTests(unittest.TestCase):
 
     def test_readme_names_live_install_surfaces(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("https://skills.sh/hraness/ensoul", readme)
-        self.assertIn(f"npx skills add hraness/ensoul#v{self.version}", readme)
+        self.assertIn("https://skills.sh/hraness/ensoul/ensoul", readme)
+        self.assertIn(
+            f"npx skills add hraness/ensoul#v{self.version} --skill ensoul",
+            readme,
+        )
+        self.assertIn(
+            f"bunx skills add hraness/ensoul#v{self.version} --skill ensoul",
+            readme,
+        )
         self.assertIn(f"@hraness/ensoul@{self.version}", readme)
         self.assertIn("node_modules/@hraness/ensoul/skills/ensoul/", readme)
 
