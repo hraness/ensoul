@@ -1,0 +1,186 @@
+name: Stage npm package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-stage
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify exact package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact_name: ${{ steps.pack.outputs.artifact_name }}
+      package_version: ${{ steps.identity.outputs.version }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      tarball_name: ${{ steps.pack.outputs.tarball_name }}
+      tarball_sha256: ${{ steps.pack.outputs.tarball_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Pin npm
+        run: npm install --global npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+      - name: Verify unpublished package identity
+        id: identity
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::npm staging must run from $DEFAULT_BRANCH"
+            exit 1
+          fi
+          git fetch --no-tags origin "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          source_sha="$(git rev-parse "origin/$DEFAULT_BRANCH")"
+          if [[ "$GITHUB_SHA" != "$source_sha" || "$(git rev-parse HEAD)" != "$source_sha" ]]; then
+            echo "::error::npm staging must run from current $DEFAULT_BRANCH head"
+            exit 1
+          fi
+          package_name="$(node -p 'require("./package.json").name')"
+          package_version="$(node -p 'require("./package.json").version')"
+          if [[ "$package_name" != "@hraness/ensoul" ]]; then
+            echo "::error::Unexpected package name $package_name"
+            exit 1
+          fi
+          if [[ ! "$package_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Package version is not stable semantic version"
+            exit 1
+          fi
+          if git rev-parse --verify --quiet "refs/tags/v$package_version" >/dev/null; then
+            echo "::error::Create v$package_version only after npm publication is verified"
+            exit 1
+          fi
+          npm view "$package_name" name --json --registry=https://registry.npmjs.org >/dev/null
+          version_error="$RUNNER_TEMP/npm-version-error.txt"
+          if npm view "$package_name@$package_version" version --json \
+            --registry=https://registry.npmjs.org >/dev/null 2>"$version_error"; then
+            echo "::error::$package_name@$package_version is already public"
+            exit 1
+          fi
+          if ! grep -q 'E404' "$version_error"; then
+            cat "$version_error"
+            echo "::error::Could not prove that $package_name@$package_version is unpublished"
+            exit 1
+          fi
+          printf 'source_sha=%s\nversion=%s\n' "$source_sha" "$package_version" >> "$GITHUB_OUTPUT"
+      - run: python -m unittest discover -s tests -v
+      - run: python -m json.tool schema/ensoul-source-packet-v1.schema.json >/dev/null
+      - name: Pack and smoke exact artifact
+        id: pack
+        run: |
+          set -euo pipefail
+          artifact_directory="$RUNNER_TEMP/ensoul-npm-package"
+          pack_json="$artifact_directory/npm-pack.json"
+          sha256_file="$artifact_directory/npm-package.sha256"
+          mkdir -p "$artifact_directory"
+          npm pack \
+            --ignore-scripts \
+            --json \
+            --pack-destination "$artifact_directory" \
+            --registry=https://registry.npmjs.org > "$pack_json"
+          tarball_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))[0]["filename"])' "$pack_json")"
+          tarball="$artifact_directory/$tarball_name"
+          python scripts/package_smoke.py --archive "$tarball" --pack-json "$pack_json"
+          tarball_sha256="$(sha256sum "$tarball" | awk '{ print $1 }')"
+          printf '%s\n' "$tarball_sha256" > "$sha256_file"
+          artifact_name="npm-package-${{ steps.identity.outputs.version }}-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          printf 'artifact_name=%s\ntarball_name=%s\ntarball_sha256=%s\n' \
+            "$artifact_name" "$tarball_name" "$tarball_sha256" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.pack.outputs.artifact_name }}
+          path: ${{ runner.temp }}/ensoul-npm-package
+          if-no-files-found: error
+          retention-days: 30
+
+  stage:
+    name: Stage exact package
+    needs: verify
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Pin npm
+        run: npm install --global npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.verify.outputs.artifact_name }}
+          path: ${{ runner.temp }}/ensoul-npm-package
+      - name: Bind and smoke downloaded artifact
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.verify.outputs.source_sha }}
+          EXPECTED_TARBALL_NAME: ${{ needs.verify.outputs.tarball_name }}
+          EXPECTED_TARBALL_SHA256: ${{ needs.verify.outputs.tarball_sha256 }}
+          EXPECTED_VERSION: ${{ needs.verify.outputs.package_version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_SHA" != "$EXPECTED_SOURCE_SHA" || "$(git rev-parse HEAD)" != "$EXPECTED_SOURCE_SHA" ]]; then
+            echo "::error::Downloaded package is not bound to this source revision"
+            exit 1
+          fi
+          artifact_directory="$RUNNER_TEMP/ensoul-npm-package"
+          pack_json="$artifact_directory/npm-pack.json"
+          sha256_file="$artifact_directory/npm-package.sha256"
+          tarball="$artifact_directory/$EXPECTED_TARBALL_NAME"
+          mapfile -d '' artifact_entries < <(find "$artifact_directory" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+          if [[ ${#artifact_entries[@]} -ne 3 ]]; then
+            echo "::error::Downloaded artifact must contain exactly three files"
+            exit 1
+          fi
+          for required_file in "$pack_json" "$sha256_file" "$tarball"; do
+            if [[ ! -f "$required_file" || -L "$required_file" ]]; then
+              echo "::error::Downloaded artifact contains an unsafe or missing file"
+              exit 1
+            fi
+          done
+          if [[ "$EXPECTED_TARBALL_NAME" != "hraness-ensoul-$EXPECTED_VERSION.tgz" ]]; then
+            echo "::error::Tarball name does not match the verified version"
+            exit 1
+          fi
+          recorded_sha256="$(tr -d '\n' < "$sha256_file")"
+          current_sha256="$(sha256sum "$tarball" | awk '{ print $1 }')"
+          if [[ "$recorded_sha256" != "$EXPECTED_TARBALL_SHA256" || "$current_sha256" != "$EXPECTED_TARBALL_SHA256" ]]; then
+            echo "::error::Downloaded tarball digest changed after verification"
+            exit 1
+          fi
+          python scripts/package_smoke.py --archive "$tarball" --pack-json "$pack_json"
+      - name: Submit verified package to npm staging
+        env:
+          TARBALL_NAME: ${{ needs.verify.outputs.tarball_name }}
+        run: |
+          set -euo pipefail
+          tarball="$RUNNER_TEMP/ensoul-npm-package/$TARBALL_NAME"
+          npm stage publish "$tarball" \
+            --access public \
+            --ignore-scripts \
+            --provenance \
+            --registry=https://registry.npmjs.org

@@ -8,6 +8,8 @@ description: >-
   plan or PRD for delegated multi-agent implementation, or convert a spec,
   checklist, or design doc into implementable phases.
 license: MIT
+metadata:
+  internal: true
 ---
 
 # Write Phase Plan

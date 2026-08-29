@@ -16,6 +16,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Pin npm
+        run: npm install --global npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
       - run: python -m unittest discover -s tests -v
       - run: python -m json.tool schema/ensoul-source-packet-v1.schema.json >/dev/null
-
+      - name: Pack and smoke npm artifact
+        run: |
+          set -euo pipefail
+          artifact_directory="$(mktemp -d)"
+          pack_json="$artifact_directory/npm-pack.json"
+          npm pack \
+            --ignore-scripts \
+            --json \
+            --pack-destination "$artifact_directory" \
+            --registry=https://registry.npmjs.org > "$pack_json"
+          tarball_name="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))[0]["filename"])' "$pack_json")"
+          python scripts/package_smoke.py \
+            --archive "$artifact_directory/$tarball_name" \
+            --pack-json "$pack_json"
