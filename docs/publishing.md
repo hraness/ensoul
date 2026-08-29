@@ -18,8 +18,8 @@ From current `main`, after the required check passes:
      --json \
      --pack-destination "$ensoul_artifact" \
      --registry=https://registry.npmjs.org > "$ensoul_pack_json"
-   ensoul_archive="$ensoul_artifact/hraness-ensoul-0.2.0.tgz"
-   python3 scripts/package_smoke.py \
+   ensoul_archive="$ensoul_artifact/hraness-ensoul-0.3.0.tgz"
+   bun scripts/package-smoke.ts \
      --archive "$ensoul_archive" \
      --pack-json "$ensoul_pack_json"
    ```
@@ -44,7 +44,7 @@ After bootstrap, configure npm trusted publishing for `hraness/ensoul` and `.git
 1. Update `VERSION`, `package.json`, and version-pinned install text together; merge only after the required check passes.
 2. Dispatch `Stage npm package` from current `main`. The workflow proves the version is new, builds and smokes one exact artifact, and submits it through npm OIDC with provenance.
 3. Review and approve the staged package through npm's interactive stage flow.
-4. Verify the live registry artifact against current `main` with `scripts/package_smoke.py`.
+4. Verify the live registry artifact against current `main` with `bun scripts/package-smoke.ts`.
 5. Create and push `v<VERSION>` only after that verification. The tag workflow re-runs the tests, validates both archives, compares a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and creates an immutable GitHub Release. This binds the installed payload without depending on gzip output, tar ordering, or incidental container metadata.
 6. Run one normal skills CLI install for the released tag and verify the canonical skills.sh page.
 
