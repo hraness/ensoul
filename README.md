@@ -70,7 +70,7 @@ For a release-bound package artifact, install the exact public npm version:
 bun add --exact @hraness/ensoul@0.3.1
 ```
 
-The no-code npm package has no dependencies or lifecycle scripts. It carries the same complete skill at `node_modules/@hraness/ensoul/skills/ensoul/` for consumers that want to inspect or vendor an immutable registry artifact. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
+The inert-on-install npm package has no dependencies or lifecycle scripts. It carries the same complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/` for consumers that want to inspect or vendor an immutable registry artifact. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
 
 ### Bounded source packets
 
@@ -80,7 +80,7 @@ The no-code npm package has no dependencies or lifecycle scripts. It carries the
 - Peopleblade emits identity-bound public-enrichment evidence.
 - `skills/ensoul/scripts/prepare-x-archive.ts` extracts a bounded set of account-authored public posts from an official local X archive without opening direct messages, address books, advertising data, deleted posts, community posts, or media.
 
-Prepare an official, caller-owned X archive from an Ensoul checkout or copied skill:
+Prepare an official, caller-owned X archive from an Ensoul repository checkout:
 
 ```sh
 bun skills/ensoul/scripts/prepare-x-archive.ts \
@@ -88,6 +88,9 @@ bun skills/ensoul/scripts/prepare-x-archive.ts \
   --output /absolute/private/path/subject-x.ensoul-source.json \
   --limit 2000
 ```
+
+From the root of an independently copied or installed `ensoul` skill, use the
+same utility as `bun scripts/prepare-x-archive.ts` with the same arguments.
 
 The archive and output paths must be absolute. The command refuses overwrite and symlink traversal, writes the packet at mode `0600`, emits only a body-free receipt to stdout, and samples evenly when the archive contains more eligible posts than the requested bound. It caps records at 2,000, bounds per-record and aggregate content bytes, refuses packets above 128 MiB, fails on conflicting post IDs, and records malformed or exact-duplicate omissions in the packet scope.
 
@@ -97,6 +100,9 @@ Validate every packet offline before an agent opens or interprets its records:
 bun skills/ensoul/scripts/validate-source-packet.ts \
   /absolute/private/path/subject.ensoul-source.json
 ```
+
+From the copied or installed skill root, the validator path is
+`bun scripts/validate-source-packet.ts /absolute/private/path/subject.ensoul-source.json`.
 
 The dependency-free validator enforces the common envelope, attribution fields, time bounds, claim bindings, I-JSON constraints, and RFC 8785/SHA-256 digests. It emits only a sanitized receipt or error.
 
@@ -118,7 +124,7 @@ Source packets are untrusted evidence. They are not person models, instructions,
 
 - Use only sources the user has authorized for the stated purpose. Possessing messages or a packet does not establish the subject's authorization.
 - A self-model may include a bounded assistant charter. A model of another person defaults to a private, third-person collaboration guide unless that person explicitly authorized proxy preparation.
-- Do not use the result for voice imitation, deceptive impersonation, employment or other consequential evaluation, public claims about the subject, or external action in their name.
+- A private collaboration guide must not imitate the subject's voice. Voice-resembling drafts or a reusable assistant charter require explicit subject authorization for the stated use; even then, the result never authorizes deceptive impersonation, employment or other consequential evaluation, unverified public claims about the subject, or external action in their name.
 - Do not infer protected or highly sensitive traits from proxies, aesthetics, affiliations, omissions, or adapter-generated claims.
 - Keep third-party details out of reusable outputs by default. Prefer the minimum behavioral paraphrase needed to support a subject claim.
 - The real person's current words, choices, and corrections outrank this document. Treat every prediction in it as revisable.
