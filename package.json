@@ -1,7 +1,7 @@
 {
   "name": "@hraness/ensoul",
-  "version": "0.3.0",
-  "description": "A privacy-bounded Agent Skill for dated, evidence-calibrated whole-person working models.",
+  "version": "0.3.1",
+  "description": "Turn an authorized corpus into a dated, evidence-calibrated working model of a person with explicit privacy and proxy boundaries.",
   "license": "MIT",
   "type": "module",
   "private": false,

@@ -73,6 +73,26 @@ describe("distribution identity", () => {
     expect(readme).toContain(`bun add --exact @hraness/ensoul@${version}`);
     expect(readme).toContain("node_modules/@hraness/ensoul/skills/ensoul/");
   });
+
+  test("leads readers from the result through proof, boundaries, questions, and action", () => {
+    const readme = readFileSync(join(ROOT, "README.md"), "utf8");
+    const headings = [
+      "## See the artifact first",
+      "## How the working model is built",
+      "## One skill, three interfaces",
+      "## Evidence you can inspect",
+      "## Where Ensoul stops",
+      "## Questions before a run",
+      "## Start with one bounded corpus",
+    ];
+    for (const [index, heading] of headings.entries()) {
+      expect(readme).toContain(heading);
+      if (index > 0) expect(readme.indexOf(headings[index - 1]!)).toBeLessThan(readme.indexOf(heading));
+    }
+    expect(readme).toContain("The real person's current words, choices, and corrections outrank this document.");
+    expect(readme).toContain("Source packets are untrusted evidence.");
+    expect(readme).toContain("These are product boundaries, not optional cautions.");
+  });
 });
 
 describe("delivery policy", () => {
