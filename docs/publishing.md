@@ -56,6 +56,22 @@ rejects packed top-level or `publishConfig.tag` overrides, proves pinned npm's d
 is its clean built-in `latest` default under empty user and global configuration, and
 does not pass npm's non-default `--tag` option.
 
+The only successful pre-versioned staging jobs are sealed to their provider-owned
+records: run `33263116309`, attempt `1`, source
+`e8308cb3f89fd38377d68196b1d75a64675d2c6b`, version `0.3.0`; and run
+`33558844386`, attempt `1`, source
+`46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674`, version `0.3.1`. Every later
+successful stage must carry its stable version in the job name, and the lock reads all
+run attempts so a later rerun cannot hide an earlier successful stage.
+
+If npm rejects a staged candidate, reject that exact version through npm first (the
+provider requires two-factor authentication), then dispatch the current `main`
+replacement with `publish_to_npm=true` and
+`resolved_stage_version=<rejected version>`. The owner-authorized recovery input
+releases only that exact blocking Actions-history record; leave it empty normally. A
+successful public promotion releases the lock automatically when the version becomes
+`dist-tags.latest`.
+
 The OIDC-bearing stage job contains no checkout or repository code. Before it sets up npm,
 it reads the current Actions attempt and fails closed unless both the actor and triggering
 actor are immutable owner User ID `894119`, the workflow/repository IDs are exact, and the

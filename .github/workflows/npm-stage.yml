@@ -8,6 +8,11 @@ on:
         required: true
         default: false
         type: boolean
+      resolved_stage_version:
+        description: Exact prior stage version already rejected in npm; leave empty normally
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -257,6 +262,7 @@ jobs:
           EXPECTED_VERSION: ${{ needs.verify.outputs.package_version }}
           EXPECTED_WORKFLOW_ID: "345387949"
           GH_TOKEN: ${{ github.token }}
+          RESOLVED_STAGE_VERSION: ${{ inputs.resolved_stage_version }}
         run: |
           set -euo pipefail
           node <<'NODE'
@@ -266,6 +272,19 @@ jobs:
           const workflowId = process.env.EXPECTED_WORKFLOW_ID ?? "";
           const repository = process.env.GITHUB_REPOSITORY ?? "";
           const currentRunId = process.env.GITHUB_RUN_ID ?? "";
+          const resolvedStageVersion = process.env.RESOLVED_STAGE_VERSION ?? "";
+          const legacyStages = new Map([
+            ["33263116309", Object.freeze({
+              headSha: "e8308cb3f89fd38377d68196b1d75a64675d2c6b",
+              runAttempt: 1,
+              version: "0.3.0",
+            })],
+            ["33558844386", Object.freeze({
+              headSha: "46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674",
+              runAttempt: 1,
+              version: "0.3.1",
+            })],
+          ]);
           const maximum = BigInt(Number.MAX_SAFE_INTEGER);
           const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
           const parseVersion = (value, label) => {
@@ -297,6 +316,9 @@ jobs:
             || repository !== "hraness/ensoul"
           ) throw new Error("Stable-stage history identity is invalid");
           const candidate = parseVersion(expectedVersion, "Candidate version");
+          const resolved = resolvedStageVersion === ""
+            ? null
+            : parseVersion(resolvedStageVersion, "Resolved prior stage version");
           const latestValue = JSON.parse(execute("npm", [
             "view",
             expectedName,
@@ -323,6 +345,7 @@ jobs:
             || !Array.isArray(runsPayload.workflow_runs)
             || runsPayload.workflow_runs.length !== runsPayload.total_count
           ) throw new Error("Completed npm-stage history exceeds the reviewed 100-run bound");
+          let resolvedStageSeen = false;
           for (const run of runsPayload.workflow_runs) {
             if (
               !run
@@ -338,7 +361,7 @@ jobs:
             const jobsPayload = JSON.parse(execute("gh", [
               "api",
               "--method", "GET",
-              `/repos/${repository}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+              `/repos/${repository}/actions/runs/${run.id}/jobs?filter=all&per_page=100`,
             ], `jobs for npm-stage run ${run.id}`));
             if (
               !jobsPayload
@@ -355,17 +378,39 @@ jobs:
               }
               if (job.conclusion !== "success" || !job.name.startsWith("Stage exact package")) continue;
               const match = /^Stage exact package v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/u.exec(job.name);
-              if (match === null) {
-                throw new Error(`Successful npm-stage run ${run.id} lacks a version-bound stage job`);
+              let stagedVersion;
+              if (match !== null) {
+                stagedVersion = match[1];
+              } else {
+                const legacy = legacyStages.get(String(run.id));
+                if (
+                  job.name !== "Stage exact package"
+                  || legacy === undefined
+                  || job.head_sha !== legacy.headSha
+                  || job.run_attempt !== legacy.runAttempt
+                ) {
+                  throw new Error(`Successful npm-stage run ${run.id} lacks a version-bound stage job`);
+                }
+                stagedVersion = legacy.version;
               }
-              const stagedVersion = match[1];
               const staged = parseVersion(stagedVersion, `Staged version from run ${run.id}`);
               if (compare(staged, latest) > 0) {
+                if (
+                  resolved !== null
+                  && stagedVersion === resolvedStageVersion
+                  && compare(staged, candidate) <= 0
+                ) {
+                  resolvedStageSeen = true;
+                  continue;
+                }
                 throw new Error(
                   `Refusing to stage ${expectedVersion}: run ${run.id} already staged pending ${stagedVersion}`,
                 );
               }
             }
+          }
+          if (resolved !== null && !resolvedStageSeen) {
+            throw new Error(`Resolved prior stage ${resolvedStageVersion} does not identify a blocking stage`);
           }
           NODE
       - name: Bind artifact reference

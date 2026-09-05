@@ -304,6 +304,8 @@ describe("delivery policy", () => {
     expect(workflow).toContain("publish_to_npm:");
     expect(workflow).toContain("description: Submit the verified artifact to npm staging");
     expect(workflow).toContain("default: false");
+    expect(workflow).toContain("resolved_stage_version:");
+    expect(workflow).toContain("Exact prior stage version already rejected in npm");
     expect(workflow).toContain("if: inputs.publish_to_npm == true");
     expect(workflow).toContain("environment:\n      name: npm-stage");
     const artifactUpload = workflow.indexOf("actions/upload-artifact@");
@@ -341,6 +343,10 @@ describe("delivery policy", () => {
     expect(stage).toContain("Rebind downloaded package without repository code");
     expect(stage).toContain("Reject another pending stable stage");
     expect(stage).toContain("already staged pending");
+    expect(stage).toContain("does not identify a blocking stage");
+    expect(stage).toContain("jobs?filter=all&per_page=100");
+    expect(stage).toContain("33263116309");
+    expect(stage).toContain("33558844386");
     expect(stage).toContain('git --git-dir="$current_main" fetch');
     expect(stage).toContain('"$GITHUB_SHA" != "$current_default_sha"');
     expect(stage).toContain("git ls-remote --exit-code --refs");
@@ -369,6 +375,7 @@ describe("delivery policy", () => {
           'case "$*" in',
           '  *"/actions/workflows/345387949/runs?"*) cat "$MOCK_RUNS_JSON" ;;',
           '  *"/actions/runs/12345/jobs?"*) cat "$MOCK_JOBS_JSON" ;;',
+          '  *"/actions/runs/33558844386/jobs?"*) cat "$MOCK_JOBS_JSON" ;;',
           '  *) echo "unexpected gh request: $*" >&2; exit 2 ;;',
           "esac",
         ].join("\n")),
@@ -410,11 +417,68 @@ describe("delivery policy", () => {
       expect(sequentialRun.exitCode).not.toBe(0);
       expect(sequentialRun.stderr).toContain("run 12345 already staged pending 0.3.3");
 
+      const rejectedStageRecovery = await runWorkflowScript(script, {
+        ...environment,
+        RESOLVED_STAGE_VERSION: "0.3.3",
+      });
+      expect(rejectedStageRecovery.exitCode).toBe(0);
+
+      const unrelatedRecovery = await runWorkflowScript(script, {
+        ...environment,
+        RESOLVED_STAGE_VERSION: "0.3.1",
+      });
+      expect(unrelatedRecovery.exitCode).not.toBe(0);
+
       const afterPromotion = await runWorkflowScript(script, {
         ...environment,
         MOCK_NPM_LATEST: "0.3.3",
       });
       expect(afterPromotion.exitCode).toBe(0);
+
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({
+          total_count: 1,
+          workflow_runs: [{
+            event: "workflow_dispatch",
+            head_branch: "main",
+            id: 33558844386,
+            status: "completed",
+            workflow_id: 345387949,
+          }],
+        })),
+        writeFile(jobsPath, JSON.stringify({
+          total_count: 1,
+          jobs: [{
+            conclusion: "success",
+            head_sha: "46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674",
+            name: "Stage exact package",
+            run_attempt: 1,
+          }],
+        })),
+      ]);
+      const sealedLegacyStage = await runWorkflowScript(script, {
+        ...environment,
+        EXPECTED_VERSION: "0.3.2",
+        MOCK_NPM_LATEST: "0.3.1",
+      });
+      expect(sealedLegacyStage.exitCode).toBe(0);
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 1,
+        jobs: [{
+          conclusion: "success",
+          head_sha: "a".repeat(40),
+          name: "Stage exact package",
+          run_attempt: 1,
+        }],
+      }));
+      const forgedLegacyStage = await runWorkflowScript(script, {
+        ...environment,
+        EXPECTED_VERSION: "0.3.2",
+        MOCK_NPM_LATEST: "0.3.1",
+      });
+      expect(forgedLegacyStage.exitCode).not.toBe(0);
+      expect(forgedLegacyStage.stderr).toContain("lacks a version-bound stage job");
     } finally {
       await rm(root, { force: true, recursive: true });
     }
