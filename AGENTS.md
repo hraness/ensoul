@@ -9,6 +9,9 @@
 # Guidelines
 
 - Follow `STYLE.md` for public documentation, README, schema descriptions, and Agent Skill prose.
+- Keep `@hraness/ensoul` on npm's dual-use staged-publication path. The default workflow builds a candidate artifact only; only an explicit owner dispatch from protected current `main` may request `npm stage publish`, and the workflow must reauthorize both the current actor and triggering actor before setting up npm or minting OIDC.
+- Keep only one pending stable npm candidate, require it to be newer than `dist-tags.latest`, and stage it explicitly under `latest`. The packed manifest may contain only `publishConfig.access=public` and the canonical public npm registry; independently recheck that manifest inside the checkout-free OIDC job.
+- Before a GitHub Release mutation, require the exact candidate to remain npm `latest`, cryptographically verify npm's registry signature plus one publish attestation and one SLSA v1 provenance statement, bind that provenance to the exact archive digest, source commit, Ensoul npm-stage workflow/repository/main/event identities, and reauthorize its completed owner-run attempt.
 
 <!-- hra-local-efficiency:start -->
 - Treat the user's request to change this repository as standing authorization for routine task-owned commits, pushes, pull requests, merges, releases, deployments, and production verification after the repository's required validation, review, identity, and rollout gates pass. Do not ask for another confirmation at each delivery step.

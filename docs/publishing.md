@@ -38,6 +38,16 @@ candidate, not a public npm version or release.
 Collect validated candidates into a less-frequent stable train. Only when the stable
 version is ready for public npm delivery should an agent dispatch the same workflow with
 `publish_to_npm=true`, then request the one unavoidable staged-publication approval below.
+Keep only one pending stable stage: the workflow requires its version to be newer than
+the current public `dist-tags.latest` and submits it explicitly under `latest`.
+
+The OIDC-bearing stage job contains no checkout or repository code. Before it sets up npm,
+it reads the current Actions attempt and fails closed unless both the actor and triggering
+actor are immutable owner User ID `894119`, the workflow/repository IDs are exact, and the
+attempt is an intentional protected-`main` dispatch. It then independently parses the
+downloaded tarball and permits exactly `publishConfig.access=public` plus
+`publishConfig.registry=https://registry.npmjs.org`; a packed `tag`, scoped registry,
+proxy, authentication, or other npm configuration is rejected before OIDC publication.
 
 ## Publish later versions
 
@@ -45,7 +55,7 @@ version is ready for public npm delivery should an agent dispatch the same workf
 2. Dispatch `Build or stage npm package` from current `main` with `publish_to_npm=true`. The workflow proves the version is new, builds and smokes one exact artifact, and submits it through npm OIDC with provenance.
 3. Review and approve the staged package through npm's interactive stage flow.
 4. Verify the live registry artifact against current `main` with `bun scripts/package-smoke.ts`.
-5. Create and push `v<VERSION>` only after that verification. The tag workflow re-runs the tests, validates both archives, compares a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and creates an immutable GitHub Release. This binds the installed payload without depending on gzip output, tar ordering, or incidental container metadata.
+5. Create and push `v<VERSION>` only after that verification. The tag workflow re-runs the tests, requires that exact version to remain `dist-tags.latest`, validates both archives, compares a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and creates an immutable GitHub Release. It also runs pinned npm's signature audit in an isolated install, requires no missing or invalid signatures, and verifies exactly one npm publish attestation plus one SLSA v1 provenance statement against the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
 6. Run one normal skills CLI install for the released tag and verify the canonical skills.sh page.
 
 Repository immutable releases are a precondition. The tag workflow checks the

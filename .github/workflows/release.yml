@@ -55,6 +55,7 @@ jobs:
     name: Verify
     needs: authorize
     permissions:
+      actions: read
       contents: read
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -141,6 +142,8 @@ jobs:
       - run: bun run check:runtime-policy
       - run: bun run check:schema
       - name: Verify exact public npm artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           package_name="$(bun -e 'console.log((await Bun.file("./package.json").json()).name)')"
@@ -149,6 +152,7 @@ jobs:
           registry_directory="$RUNNER_TEMP/ensoul-registry-package"
           source_json="$RUNNER_TEMP/ensoul-source-pack.json"
           registry_json="$RUNNER_TEMP/ensoul-registry-pack.json"
+          registry_view_json="$RUNNER_TEMP/ensoul-registry-view.json"
           mkdir -p "$source_directory" "$registry_directory"
           npm pack \
             --ignore-scripts \
@@ -160,6 +164,16 @@ jobs:
             --json \
             --pack-destination "$registry_directory" \
             --registry=https://registry.npmjs.org > "$registry_json"
+          npm view "$package_name@$package_version" name version dist \
+            --json \
+            --registry=https://registry.npmjs.org > "$registry_view_json"
+          latest_version="$(npm view "$package_name" dist-tags.latest \
+            --json \
+            --registry=https://registry.npmjs.org)"
+          if [[ "$latest_version" != "\"$package_version\"" ]]; then
+            echo "::error::npm latest is $latest_version, expected $package_version"
+            exit 1
+          fi
           source_name="$(bun -e 'console.log((await Bun.file(process.argv.at(-1)).json())[0].filename)' "$source_json")"
           registry_name="$(bun -e 'console.log((await Bun.file(process.argv.at(-1)).json())[0].filename)' "$registry_json")"
           if [[ "$source_name" != "$registry_name" ]]; then
@@ -177,6 +191,109 @@ jobs:
             echo "::error::Public npm payload differs from the tagged source artifact"
             exit 1
           fi
+          audit_directory="$RUNNER_TEMP/ensoul-release-signature-audit"
+          audit_json="$RUNNER_TEMP/ensoul-release-signature-audit.json"
+          mkdir -p "$audit_directory"
+          AUDIT_DIRECTORY="$audit_directory" \
+            PACKAGE_NAME="$package_name" \
+            PACKAGE_VERSION="$package_version" node <<'NODE'
+          const { writeFileSync } = require("node:fs");
+          const { join } = require("node:path");
+          writeFileSync(join(process.env.AUDIT_DIRECTORY, "package.json"), `${JSON.stringify({
+            name: "ensoul-release-signature-audit",
+            private: true,
+            version: "0.0.0",
+            dependencies: { [process.env.PACKAGE_NAME]: process.env.PACKAGE_VERSION },
+          })}\n`, { encoding: "utf8", mode: 0o600 });
+          NODE
+          npm install \
+            --prefix "$audit_directory" \
+            --ignore-scripts \
+            --omit=dev \
+            --omit=optional \
+            --no-audit \
+            --no-fund \
+            --registry=https://registry.npmjs.org
+          npm audit signatures \
+            --prefix "$audit_directory" \
+            --json \
+            --include-attestations \
+            --omit=dev \
+            --omit=optional \
+            --registry=https://registry.npmjs.org \
+            > "$audit_json"
+          provenance_identity="$(bun scripts/npm-provenance-identity.ts \
+            --audit-json "$audit_json" \
+            --expected-source-sha "$GITHUB_SHA" \
+            --expected-version "$package_version" \
+            --registry-archive "$registry_archive" \
+            --registry-view-json "$registry_view_json")"
+          read -r stage_run_id stage_run_attempt < <(PROVENANCE_IDENTITY="$provenance_identity" node <<'NODE'
+          const identity = JSON.parse(process.env.PROVENANCE_IDENTITY ?? "null");
+          if (
+            !Number.isSafeInteger(identity?.runId)
+            || identity.runId < 1
+            || !Number.isSafeInteger(identity?.runAttempt)
+            || identity.runAttempt < 1
+            || Object.keys(identity).sort().join(",") !== "runAttempt,runId"
+          ) throw new Error("Verified npm provenance returned an invalid run identity");
+          process.stdout.write(`${identity.runId} ${identity.runAttempt}\n`);
+          NODE
+          )
+          stage_attempt_json="$(mktemp "$RUNNER_TEMP/ensoul-published-stage-attempt.XXXXXX")"
+          stage_workflow_json="$(mktemp "$RUNNER_TEMP/ensoul-published-stage-workflow.XXXXXX")"
+          repository_json="$(mktemp "$RUNNER_TEMP/ensoul-published-stage-repository.XXXXXX")"
+          trap 'rm -f "$stage_attempt_json" "$stage_workflow_json" "$repository_json"' EXIT
+          gh api --method GET \
+            "/repos/$GITHUB_REPOSITORY/actions/runs/$stage_run_id/attempts/$stage_run_attempt" \
+            > "$stage_attempt_json"
+          gh api --method GET \
+            "/repos/$GITHUB_REPOSITORY/actions/workflows/345387949" \
+            > "$stage_workflow_json"
+          gh api --method GET "/repos/$GITHUB_REPOSITORY" > "$repository_json"
+          ATTEMPT_JSON="$stage_attempt_json" \
+            EXPECTED_RUN_ATTEMPT="$stage_run_attempt" \
+            EXPECTED_RUN_ID="$stage_run_id" \
+            EXPECTED_SHA="$GITHUB_SHA" \
+            REPOSITORY_JSON="$repository_json" \
+            WORKFLOW_JSON="$stage_workflow_json" node <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const attempt = JSON.parse(readFileSync(process.env.ATTEMPT_JSON, "utf8"));
+          const workflow = JSON.parse(readFileSync(process.env.WORKFLOW_JSON, "utf8"));
+          const repository = JSON.parse(readFileSync(process.env.REPOSITORY_JSON, "utf8"));
+          const runId = Number(process.env.EXPECTED_RUN_ID);
+          const runAttempt = Number(process.env.EXPECTED_RUN_ATTEMPT);
+          if (
+            !Number.isSafeInteger(runId)
+            || !Number.isSafeInteger(runAttempt)
+            || attempt.id !== runId
+            || attempt.run_attempt !== runAttempt
+            || attempt.workflow_id !== 345387949
+            || attempt.name !== "Build or stage npm package"
+            || attempt.path !== ".github/workflows/npm-stage.yml"
+            || attempt.event !== "workflow_dispatch"
+            || attempt.head_branch !== "main"
+            || attempt.head_sha !== process.env.EXPECTED_SHA
+            || attempt.status !== "completed"
+            || attempt.conclusion !== "success"
+            || attempt.actor?.id !== 894119
+            || attempt.actor?.type !== "User"
+            || attempt.triggering_actor?.id !== 894119
+            || attempt.triggering_actor?.type !== "User"
+            || attempt.repository?.id !== 1350294135
+            || attempt.repository?.full_name !== "hraness/ensoul"
+            || attempt.repository?.private !== false
+            || workflow.id !== 345387949
+            || workflow.name !== "Build or stage npm package"
+            || workflow.path !== ".github/workflows/npm-stage.yml"
+            || workflow.state !== "active"
+            || repository.id !== 1350294135
+            || repository.full_name !== "hraness/ensoul"
+            || repository.visibility !== "public"
+            || repository.private !== false
+            || repository.default_branch !== "main"
+          ) throw new Error("Published npm provenance is not bound to the completed owner-authorized stage attempt");
+          NODE
 
   publish:
     name: Publish

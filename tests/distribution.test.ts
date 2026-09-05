@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { EXPECTED_PATHS } from "../scripts/package-smoke.ts";
 import { violations } from "../scripts/check-runtime-policy.ts";
+import {
+  verifyNpmProvenanceIdentity,
+  type NpmProvenanceIdentityInput,
+} from "../scripts/npm-provenance-identity.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const package_ = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as Record<string, any>;
@@ -23,6 +30,7 @@ describe("distribution identity", () => {
       publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
       contentPolicy: { class: "dual-use" },
     });
+    expect(Object.keys(package_.publishConfig).sort()).toEqual(["access", "registry"]);
     expect(package_.dependencies).toBeUndefined();
     expect(package_.optionalDependencies).toBeUndefined();
     expect(package_.peerDependencies).toBeUndefined();
@@ -108,6 +116,8 @@ describe("delivery policy", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
     expect(workflow).toContain("id-token: write");
     expect(workflow).toContain('npm stage publish "$TARBALL"');
+    expect(workflow).toContain("--tag latest");
+    expect(workflow).toContain("Candidate ${process.env.NEW_VERSION} must be newer than npm latest");
     expect(workflow).not.toContain("NODE_AUTH_TOKEN");
     expect(workflow).not.toContain("npm publish ");
   });
@@ -131,7 +141,13 @@ describe("delivery policy", () => {
     expect(stage).not.toContain("actions/checkout@");
     expect(stage).not.toContain("setup-bun@");
     expect(stage).not.toContain("bun ");
-    expect(stage).toContain("permissions:\n      id-token: write");
+    expect(stage).toContain("permissions:\n      actions: read\n      id-token: write");
+    expect(stage.indexOf("Reauthorize current npm stage attempt"))
+      .toBeLessThan(stage.indexOf("actions/setup-node@"));
+    expect(stage).toContain("attempt.actor?.id !== actorId");
+    expect(stage).toContain("attempt.triggering_actor?.id !== actorId");
+    expect(stage).toContain("Packed package.json can publish only this dual-use package to the canonical public registry");
+    expect(stage).toContain('JSON.stringify(Object.keys(publishConfig).sort()) !== JSON.stringify(["access", "registry"])');
     expect(stage).toContain("Rebind downloaded package without repository code");
     expect(stage).toContain('git --git-dir="$current_main" fetch');
     expect(stage).toContain('"$GITHUB_SHA" != "$current_default_sha"');
@@ -143,6 +159,13 @@ describe("delivery policy", () => {
     expect(workflow).toContain('npm pack "$package_name@$package_version"');
     expect(workflow).toContain("source_payload_sha256");
     expect(workflow).toContain("registry_payload_sha256");
+    expect(workflow).toContain('npm view "$package_name" dist-tags.latest');
+    expect(workflow).toContain("npm audit signatures");
+    expect(workflow).toContain("--include-attestations");
+    expect(workflow).toContain("scripts/npm-provenance-identity.ts");
+    expect(workflow).toContain("Published npm provenance is not bound to the completed owner-authorized stage attempt");
+    expect(workflow).toContain('attempt.status !== "completed"');
+    expect(workflow).toContain('attempt.conclusion !== "success"');
     expect(workflow).toContain("IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}");
     expect(workflow).toContain('REF_PROTECTED: ${{ github.ref_protected }}');
     expect(workflow).toContain('"$GITHUB_ACTOR_ID" != "$EXPECTED_ACTOR_ID"');
@@ -152,6 +175,152 @@ describe("delivery policy", () => {
     expect(workflow).not.toContain('gh api "/repos/$GITHUB_REPOSITORY/immutable-releases"');
     expect(workflow.indexOf("Require immutable releases before publication"))
       .toBeLessThan(workflow.indexOf('gh release create "$GITHUB_REF_NAME"'));
+  });
+
+  test("binds cryptographically audited npm attestations to the exact stage attempt", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ensoul-provenance-test-"));
+    const auditJson = join(directory, "audit.json");
+    const registryArchive = join(directory, "hraness-ensoul-0.3.3.tgz");
+    const registryViewJson = join(directory, "view.json");
+    const archive = Buffer.from("reviewed Ensoul registry archive\n", "utf8");
+    const sourceSha = "a".repeat(40);
+    const version = "0.3.3";
+    const sha512Hex = createHash("sha512").update(archive).digest("hex");
+    const integrity = `sha512-${createHash("sha512").update(archive).digest("base64")}`;
+    const shasum = createHash("sha1").update(archive).digest("hex");
+    const purl = `pkg:npm/%40hraness/ensoul@${version}`;
+    const bundle = (predicateType: string, statement: unknown) => ({
+      predicateType,
+      bundle: {
+        mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+        verificationMaterial: { tlogEntries: [{}] },
+        dsseEnvelope: {
+          payload: Buffer.from(JSON.stringify(statement), "utf8").toString("base64"),
+          payloadType: "application/vnd.in-toto+json",
+          signatures: [{ keyid: "", sig: "verified" }],
+        },
+      },
+    });
+    const auditFixture = ({
+      event = "workflow_dispatch",
+      includePublish = true,
+      invalid = [] as readonly unknown[],
+      source = sourceSha,
+      subjectDigest = sha512Hex,
+      workflowPath = ".github/workflows/npm-stage.yml",
+    } = {}) => {
+      const provenance = {
+        _type: "https://in-toto.io/Statement/v1",
+        subject: [{ name: purl, digest: { sha512: subjectDigest } }],
+        predicateType: "https://slsa.dev/provenance/v1",
+        predicate: {
+          buildDefinition: {
+            buildType: "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+            externalParameters: {
+              workflow: {
+                ref: "refs/heads/main",
+                repository: "https://github.com/hraness/ensoul",
+                path: workflowPath,
+              },
+            },
+            internalParameters: {
+              github: {
+                event_name: event,
+                repository_id: "1350294135",
+                repository_owner_id: "307125679",
+              },
+            },
+            resolvedDependencies: [{
+              uri: "git+https://github.com/hraness/ensoul@refs/heads/main",
+              digest: { gitCommit: source },
+            }],
+          },
+          runDetails: {
+            builder: { id: "https://github.com/actions/runner/github-hosted" },
+            metadata: {
+              invocationId: "https://github.com/hraness/ensoul/actions/runs/123456/attempts/2",
+            },
+          },
+        },
+      };
+      const publishPredicate = "https://github.com/npm/attestation/tree/main/specs/publish/v0.1";
+      const publish = {
+        _type: "https://in-toto.io/Statement/v0.1",
+        subject: [{ name: purl, digest: { sha512: subjectDigest } }],
+        predicateType: publishPredicate,
+        predicate: {
+          name: "@hraness/ensoul",
+          version,
+          registry: "https://registry.npmjs.org",
+        },
+      };
+      return {
+        invalid,
+        missing: [],
+        verified: [{
+          name: "@hraness/ensoul",
+          version,
+          registry: "https://registry.npmjs.org/",
+          attestations: {
+            url: `https://registry.npmjs.org/-/npm/v1/attestations/%40hraness%2Fensoul@${version}`,
+            provenance: { predicateType: "https://slsa.dev/provenance/v1" },
+          },
+          attestationBundles: [
+            ...(includePublish ? [bundle(publishPredicate, publish)] : []),
+            bundle("https://slsa.dev/provenance/v1", provenance),
+          ],
+        }],
+      };
+    };
+    const registryView = (signatures: readonly unknown[] = [{
+      keyid: `SHA256:${Buffer.from("registry-key", "utf8").toString("base64")}`,
+      sig: Buffer.from("registry-signature", "utf8").toString("base64"),
+    }]) => ({
+      name: "@hraness/ensoul",
+      version,
+      dist: {
+        attestations: {
+          url: `https://registry.npmjs.org/-/npm/v1/attestations/%40hraness%2Fensoul@${version}`,
+          provenance: { predicateType: "https://slsa.dev/provenance/v1" },
+        },
+        integrity,
+        shasum,
+        signatures,
+        tarball: `https://registry.npmjs.org/@hraness/ensoul/-/ensoul-${version}.tgz`,
+      },
+    });
+    const input: NpmProvenanceIdentityInput = Object.freeze({
+      auditJson,
+      expectedSourceSha: sourceSha,
+      expectedVersion: version,
+      registryArchive,
+      registryViewJson,
+    });
+    try {
+      await writeFile(registryArchive, archive);
+      await writeFile(registryViewJson, `${JSON.stringify(registryView())}\n`, "utf8");
+      await writeFile(auditJson, `${JSON.stringify(auditFixture())}\n`, "utf8");
+      await expect(verifyNpmProvenanceIdentity(input)).resolves.toEqual({
+        runAttempt: 2,
+        runId: 123456,
+      });
+      for (const [fixture, message] of [
+        [auditFixture({ event: "push" }), "Verified SLSA event"],
+        [auditFixture({ source: "b".repeat(40) }), "does not bind the staged commit"],
+        [auditFixture({ subjectDigest: "0".repeat(128) }), "does not bind the registry archive"],
+        [auditFixture({ workflowPath: ".github/workflows/release.yml" }), "Verified SLSA workflow path"],
+        [auditFixture({ includePublish: false }), "exactly one publish and one SLSA"],
+        [auditFixture({ invalid: [{}] }), "contains invalid entries"],
+      ] as const) {
+        await writeFile(auditJson, `${JSON.stringify(fixture)}\n`, "utf8");
+        await expect(verifyNpmProvenanceIdentity(input)).rejects.toThrow(message);
+      }
+      await writeFile(auditJson, `${JSON.stringify(auditFixture())}\n`, "utf8");
+      await writeFile(registryViewJson, `${JSON.stringify(registryView([]))}\n`, "utf8");
+      await expect(verifyNpmProvenanceIdentity(input)).rejects.toThrow("has no signatures");
+    } finally {
+      await rm(directory, { force: true, recursive: true });
+    }
   });
 
   test("pins every third-party workflow action to a commit", () => {

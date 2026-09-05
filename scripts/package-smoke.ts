@@ -207,9 +207,19 @@ export function verifyArchive(archivePath: string, record: PackRecord): string {
     if (file.mode !== 0o644 || entry.mode !== 0o644) fail(`npm archive mode differs from the read-only data contract for ${path}`);
     unpackedBytes += entry.size;
     if (path === "package.json") {
-      const packaged = JSON.parse(entry.bytes.toString("utf8"));
-      const source = JSON.parse(readFileSync(join(ROOT, path), "utf8"));
+      const packaged = JSON.parse(entry.bytes.toString("utf8")) as Record<string, unknown>;
+      const source = JSON.parse(readFileSync(join(ROOT, path), "utf8")) as Record<string, unknown>;
       if (JSON.stringify(packaged) !== JSON.stringify(source)) fail("packed package.json differs from source metadata");
+      const publishConfig = packaged.publishConfig;
+      if (publishConfig === null || typeof publishConfig !== "object" || Array.isArray(publishConfig)) {
+        fail("packed package.json publishConfig must be an exact object");
+      }
+      const publishConfigRecord = publishConfig as Record<string, unknown>;
+      if (
+        JSON.stringify(Object.keys(publishConfigRecord).sort()) !== JSON.stringify(["access", "registry"])
+        || publishConfigRecord.access !== "public"
+        || publishConfigRecord.registry !== "https://registry.npmjs.org"
+      ) fail("packed package.json publishConfig may contain only the canonical public npm registry policy");
     } else if (!entry.bytes.equals(readFileSync(join(ROOT, path)))) {
       fail(`npm archive bytes differ from source: ${path}`);
     }
