@@ -1,0 +1,21 @@
+Ensoul dual-use disclosure
+
+Ensoul provides an Agent Skill and local utilities for turning a user-authorized corpus
+into a dated, evidence-calibrated working model of a person. Its supported inputs can
+include private notes and messages, public material, structured source packets, and a
+bounded extraction of account-authored posts from a caller-owned X archive.
+
+These capabilities are dual-use because person modeling and communication-pattern
+analysis could be misused for invasive profiling, deceptive impersonation, unsupported
+sensitive-trait inference, or consequential decisions about another person. The package
+does not grant consent, identity authority, or permission to act in a subject's name.
+
+The intended uses are self-modeling and explicitly authorized, privacy-minimized
+collaboration. The skill requires source authorization, attribution, evidence boundaries,
+uncertainty and counterevidence, non-impersonation, and explicit limits on proxy use. It
+forbids deceptive impersonation, unsupported sensitive-attribute inference, and employment,
+credit, housing, insurance, legal, medical, disciplinary, or other consequential decisions.
+
+Installation is inert: the package has no dependencies or lifecycle scripts. It reads
+personal material only when a user deliberately supplies authorized sources to an agent or
+explicitly invokes a local source-preparation utility.

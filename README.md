@@ -51,7 +51,7 @@ The ambition is whole-person. The claim is never completeness.
 Install the single public Agent Skill from GitHub through skills.sh:
 
 ```sh
-bunx skills add hraness/ensoul#v0.3.1 --skill ensoul
+bunx skills add hraness/ensoul#v0.3.2 --skill ensoul
 ```
 
 The installer supports Codex, Claude Code, Cursor, and other compatible agents. Review the skill before installation and start a new agent session afterward.
@@ -67,7 +67,7 @@ Use $ensoul to build a dated working model of <person> from these authorized sou
 For a release-bound package artifact, install the exact public npm version:
 
 ```sh
-bun add --exact @hraness/ensoul@0.3.1
+bun add --exact @hraness/ensoul@0.3.2
 ```
 
 The inert-on-install npm package has no dependencies or lifecycle scripts. It carries the same complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/` for consumers that want to inspect or vendor an immutable registry artifact. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.

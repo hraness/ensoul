@@ -21,6 +21,7 @@ describe("distribution identity", () => {
       engines: { bun: ">=1.3.14" },
       repository: { type: "git", url: "git+https://github.com/hraness/ensoul.git" },
       publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
+      contentPolicy: { class: "dual-use" },
     });
     expect(package_.dependencies).toBeUndefined();
     expect(package_.optionalDependencies).toBeUndefined();
@@ -32,6 +33,7 @@ describe("distribution identity", () => {
 
   test("uses an explicit package inventory", () => {
     expect(package_.files).toEqual([
+      "DISCLOSURE",
       "LICENSE",
       "README.md",
       "VERSION",
@@ -43,7 +45,9 @@ describe("distribution identity", () => {
       "skills/ensoul/scripts/*.ts",
       "skills/ensoul/SKILL.md",
     ]);
-    expect(EXPECTED_PATHS.size).toBe(17);
+    expect(EXPECTED_PATHS.size).toBe(18);
+    expect(readFileSync(join(ROOT, "DISCLOSURE"), "utf8"))
+      .toContain("Ensoul dual-use disclosure");
   });
 
   test("publishes exactly one marketplace skill", async () => {
@@ -103,9 +107,35 @@ describe("delivery policy", () => {
   test("requires trusted npm staging without a long-lived token", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
     expect(workflow).toContain("id-token: write");
-    expect(workflow).toContain('npm stage publish "$tarball"');
+    expect(workflow).toContain('npm stage publish "$TARBALL"');
     expect(workflow).not.toContain("NODE_AUTH_TOKEN");
     expect(workflow).not.toContain("npm publish ");
+  });
+
+  test("builds an exact candidate artifact without staging by default", () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
+    expect(workflow).toContain("publish_to_npm:");
+    expect(workflow).toContain("description: Submit the verified artifact to npm staging");
+    expect(workflow).toContain("default: false");
+    expect(workflow).toContain("if: inputs.publish_to_npm == true");
+    expect(workflow).toContain("environment:\n      name: npm-stage");
+    const artifactUpload = workflow.indexOf("actions/upload-artifact@");
+    const stageGuard = workflow.indexOf("if: inputs.publish_to_npm == true");
+    expect(artifactUpload).toBeGreaterThanOrEqual(0);
+    expect(stageGuard).toBeGreaterThan(artifactUpload);
+  });
+
+  test("keeps repository code outside the OIDC credential boundary", () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
+    const stage = workflow.slice(workflow.indexOf("\n  stage:\n"));
+    expect(stage).not.toContain("actions/checkout@");
+    expect(stage).not.toContain("setup-bun@");
+    expect(stage).not.toContain("bun ");
+    expect(stage).toContain("permissions:\n      id-token: write");
+    expect(stage).toContain("Rebind downloaded package without repository code");
+    expect(stage).toContain('git --git-dir="$current_main" fetch');
+    expect(stage).toContain('"$GITHUB_SHA" != "$current_default_sha"');
+    expect(stage).toContain("git ls-remote --exit-code --refs");
   });
 
   test("verifies public npm bytes before immutable release publication", () => {
@@ -114,8 +144,22 @@ describe("delivery policy", () => {
     expect(workflow).toContain("source_payload_sha256");
     expect(workflow).toContain("registry_payload_sha256");
     expect(workflow).toContain("IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}");
+    expect(workflow).toContain('REF_PROTECTED: ${{ github.ref_protected }}');
+    expect(workflow).toContain('"$GITHUB_ACTOR_ID" != "$EXPECTED_ACTOR_ID"');
+    expect(workflow).toContain("attempt.triggering_actor?.id !== actorId");
+    expect(workflow).toContain('value?.object?.type !== "tag"');
+    expect(workflow).toContain('"/repos/$GITHUB_REPOSITORY/compare/$VERIFIED_SOURCE_SHA...$current_default_sha"');
     expect(workflow).not.toContain('gh api "/repos/$GITHUB_REPOSITORY/immutable-releases"');
     expect(workflow.indexOf("Require immutable releases before publication"))
       .toBeLessThan(workflow.indexOf('gh release create "$GITHUB_REF_NAME"'));
+  });
+
+  test("pins every third-party workflow action to a commit", () => {
+    for (const path of ["check.yml", "npm-stage.yml", "release.yml"]) {
+      const workflow = readFileSync(join(ROOT, ".github/workflows", path), "utf8");
+      for (const line of workflow.split("\n").filter((value) => value.trimStart().startsWith("- uses:"))) {
+        expect(line).toMatch(/- uses: [^@\s]+@[a-f0-9]{40}(?:\s+#\s+.+)?$/u);
+      }
+    }
   });
 });
