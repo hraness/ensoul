@@ -240,6 +240,13 @@ describe("distribution identity", () => {
     expect(found.sort()).toEqual(["skills/ensoul/SKILL.md"]);
   });
 
+  test("describes the shipped skill for Claude Code and Codex", () => {
+    const skill = readFileSync(join(ROOT, "skills/ensoul/SKILL.md"), "utf8");
+    const frontmatter = skill.split("---", 3)[1] ?? "";
+    expect(frontmatter).toContain("Use when Claude Code, Codex, or another compatible agent is asked to");
+    expect(frontmatter).not.toContain("Use when Codex is asked to");
+  });
+
   test("keeps repository support skills internal", async () => {
     const found: string[] = [];
     for await (const path of new Bun.Glob("*/SKILL.md").scan({ cwd: join(ROOT, ".agents/skills"), onlyFiles: true })) {
