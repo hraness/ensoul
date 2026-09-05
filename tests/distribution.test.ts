@@ -305,7 +305,7 @@ describe("delivery policy", () => {
     expect(workflow).toContain("description: Submit the verified artifact to npm staging");
     expect(workflow).toContain("default: false");
     expect(workflow).toContain("resolved_stage_version:");
-    expect(workflow).toContain("Exact prior stage version already rejected in npm");
+    expect(workflow).toContain("Exact cleared stage-intent version that releases the retained history lock");
     expect(workflow).toContain("if: inputs.publish_to_npm == true");
     expect(workflow).toContain("environment:\n      name: npm-stage");
     const artifactUpload = workflow.indexOf("actions/upload-artifact@");
@@ -341,10 +341,15 @@ describe("delivery policy", () => {
     expect(stage).toContain('Object.hasOwn(manifest, "tag")');
     expect(stage).toContain("header.subarray(257, 265).equals(ustarSignature)");
     expect(stage).toContain("Rebind downloaded package without repository code");
-    expect(stage).toContain("Reject another pending stable stage");
-    expect(stage).toContain("already staged pending");
-    expect(stage).toContain("does not identify a blocking stage");
+    expect(stage).toContain("Reject unresolved stable-stage intent");
+    expect(stage).toContain("Record exclusive stable-stage intent");
+    expect(stage).toContain("Record cleared stable-stage intent v${{ inputs.resolved_stage_version }}");
+    expect(stage).toContain("already reserved stable stage");
+    expect(stage).toContain("does not identify a blocking intent");
     expect(stage).toContain("jobs?filter=all&per_page=100");
+    expect(stage).toContain("inspectRunJobs(currentRunNumber)");
+    expect(stage).toContain("terminal write without one durable intent");
+    expect(stage).toContain("33262478732");
     expect(stage).toContain("33263116309");
     expect(stage).toContain("33558844386");
     expect(stage).toContain('git --git-dir="$current_main" fetch');
@@ -352,13 +357,16 @@ describe("delivery policy", () => {
     expect(stage).toContain("git ls-remote --exit-code --refs");
     expect(stage.lastIndexOf('npm view "@hraness/ensoul" dist-tags.latest'))
       .toBeLessThan(stage.indexOf('npm stage publish "$TARBALL"'));
+    expect(stage.lastIndexOf("Record exclusive stable-stage intent"))
+      .toBeLessThan(stage.indexOf('npm stage publish "$TARBALL"'));
   });
 
-  test("a completed first stage run blocks a sequential second pending stage", async () => {
+  test("the retained stage-intent lock survives failed jobs, reruns, and exact resolutions", async () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
-    const script = workflowStepScript(workflow, "Reject another pending stable stage");
+    const script = workflowStepScript(workflow, "Reject unresolved stable-stage intent");
     const root = await mkdtemp(join(tmpdir(), "ensoul-stage-history-"));
     const binaryDirectory = join(root, "bin");
+    const currentJobsPath = join(root, "current-jobs.json");
     const runsPath = join(root, "runs.json");
     const jobsPath = join(root, "jobs.json");
     try {
@@ -374,16 +382,16 @@ describe("delivery policy", () => {
           "set -euo pipefail",
           'case "$*" in',
           '  *"/actions/workflows/345387949/runs?"*) cat "$MOCK_RUNS_JSON" ;;',
+          '  *"/actions/runs/67890/jobs?"*) cat "$MOCK_CURRENT_JOBS_JSON" ;;',
           '  *"/actions/runs/12345/jobs?"*) cat "$MOCK_JOBS_JSON" ;;',
+          '  *"/actions/runs/33262478732/jobs?"*) cat "$MOCK_JOBS_JSON" ;;',
           '  *"/actions/runs/33558844386/jobs?"*) cat "$MOCK_JOBS_JSON" ;;',
           '  *) echo "unexpected gh request: $*" >&2; exit 2 ;;',
           "esac",
         ].join("\n")),
         writeFile(runsPath, JSON.stringify({ total_count: 0, workflow_runs: [] })),
-        writeFile(jobsPath, JSON.stringify({
-          total_count: 1,
-          jobs: [{ conclusion: "success", name: "Stage exact package v0.3.3" }],
-        })),
+        writeFile(currentJobsPath, JSON.stringify({ total_count: 0, jobs: [] })),
+        writeFile(jobsPath, JSON.stringify({ total_count: 0, jobs: [] })),
       ]);
       await Promise.all([
         chmod(join(binaryDirectory, "npm"), 0o755),
@@ -395,27 +403,50 @@ describe("delivery policy", () => {
         EXPECTED_WORKFLOW_ID: "345387949",
         GITHUB_REPOSITORY: "hraness/ensoul",
         GITHUB_RUN_ID: "67890",
+        MOCK_CURRENT_JOBS_JSON: currentJobsPath,
         MOCK_JOBS_JSON: jobsPath,
         MOCK_NPM_LATEST: "0.3.2",
         MOCK_RUNS_JSON: runsPath,
+        RESOLVED_STAGE_VERSION: "",
+        RUNNER_TEMP: root,
       };
 
       const firstRun = await runWorkflowScript(script, environment);
       expect(firstRun.exitCode).toBe(0);
 
-      await writeFile(runsPath, JSON.stringify({
-        total_count: 1,
-        workflow_runs: [{
-          event: "workflow_dispatch",
-          head_branch: "main",
-          id: 12345,
-          status: "completed",
-          workflow_id: 345387949,
+      const completedRun = {
+        event: "workflow_dispatch",
+        head_branch: "main",
+        id: 12345,
+        status: "completed",
+        workflow_id: 345387949,
+      };
+      const failedWriteAfterIntent = {
+        conclusion: "failure",
+        head_sha: "b".repeat(40),
+        name: "Stage exact package v0.3.3",
+        run_attempt: 1,
+        steps: [{
+          conclusion: "success",
+          name: "Record exclusive stable-stage intent",
+        }, {
+          conclusion: "failure",
+          name: "Revalidate current main and submit exact package to npm staging",
         }],
-      }));
-      const sequentialRun = await runWorkflowScript(script, environment);
-      expect(sequentialRun.exitCode).not.toBe(0);
-      expect(sequentialRun.stderr).toContain("run 12345 already staged pending 0.3.3");
+      };
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({
+          total_count: 1,
+          workflow_runs: [completedRun],
+        })),
+        writeFile(jobsPath, JSON.stringify({
+          total_count: 1,
+          jobs: [failedWriteAfterIntent],
+        })),
+      ]);
+      const failedJob = await runWorkflowScript(script, environment);
+      expect(failedJob.exitCode).not.toBe(0);
+      expect(failedJob.stderr).toContain("run 12345 already reserved stable stage 0.3.3");
 
       const rejectedStageRecovery = await runWorkflowScript(script, {
         ...environment,
@@ -423,17 +454,102 @@ describe("delivery policy", () => {
       });
       expect(rejectedStageRecovery.exitCode).toBe(0);
 
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({ total_count: 0, workflow_runs: [] })),
+        writeFile(currentJobsPath, JSON.stringify({
+          total_count: 1,
+          jobs: [failedWriteAfterIntent],
+        })),
+      ]);
+      const sameRunRerun = await runWorkflowScript(script, environment);
+      expect(sameRunRerun.exitCode).not.toBe(0);
+      expect(sameRunRerun.stderr).toContain("run 67890 already reserved stable stage 0.3.3");
+      expect((await runWorkflowScript(script, {
+        ...environment,
+        RESOLVED_STAGE_VERSION: "0.3.3",
+      })).exitCode).toBe(0);
+
+      const durableResolution = {
+        conclusion: "failure",
+        head_sha: "b".repeat(40),
+        name: "Stage exact package v0.3.3",
+        run_attempt: 2,
+        steps: [{
+          conclusion: "success",
+          name: "Record cleared stable-stage intent v0.3.3",
+        }],
+      };
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({
+          total_count: 1,
+          workflow_runs: [completedRun],
+        })),
+        writeFile(currentJobsPath, JSON.stringify({ total_count: 0, jobs: [] })),
+        writeFile(jobsPath, JSON.stringify({
+          total_count: 2,
+          jobs: [failedWriteAfterIntent, durableResolution],
+        })),
+      ]);
+      const durablyCleared = await runWorkflowScript(script, environment);
+      expect(durablyCleared.exitCode).toBe(0);
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 3,
+        jobs: [failedWriteAfterIntent, durableResolution, {
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          name: "Stage exact package v0.3.3",
+          run_attempt: 3,
+          steps: [{
+            conclusion: "success",
+            name: "Record cleared stable-stage intent v0.3.3",
+          }],
+        }],
+      }));
+      const overCleared = await runWorkflowScript(script, environment);
+      expect(overCleared.exitCode).not.toBe(0);
+      expect(overCleared.stderr).toContain(
+        "cleared 0.3.3 intent without its matching reservation",
+      );
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 2,
+        jobs: [failedWriteAfterIntent, durableResolution],
+      }));
       const unrelatedRecovery = await runWorkflowScript(script, {
         ...environment,
         RESOLVED_STAGE_VERSION: "0.3.1",
       });
       expect(unrelatedRecovery.exitCode).not.toBe(0);
+      expect(unrelatedRecovery.stderr).toContain("does not identify a blocking intent");
 
-      const afterPromotion = await runWorkflowScript(script, {
-        ...environment,
-        MOCK_NPM_LATEST: "0.3.3",
-      });
-      expect(afterPromotion.exitCode).toBe(0);
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({
+          total_count: 1,
+          workflow_runs: [{
+            event: "workflow_dispatch",
+            head_branch: "main",
+            id: 33262478732,
+            status: "completed",
+            workflow_id: 345387949,
+          }],
+        })),
+        writeFile(jobsPath, JSON.stringify({
+          total_count: 1,
+          jobs: [{
+            conclusion: "failure",
+            head_sha: "e8308cb3f89fd38377d68196b1d75a64675d2c6b",
+            name: "Stage exact package",
+            run_attempt: 1,
+            steps: [{
+              conclusion: "failure",
+              name: "Submit verified package to npm staging",
+            }],
+          }],
+        })),
+      ]);
+      const sealedFailedLegacyWrite = await runWorkflowScript(script, environment);
+      expect(sealedFailedLegacyWrite.exitCode).toBe(0);
 
       await Promise.all([
         writeFile(runsPath, JSON.stringify({
@@ -453,6 +569,10 @@ describe("delivery policy", () => {
             head_sha: "46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674",
             name: "Stage exact package",
             run_attempt: 1,
+            steps: [{
+              conclusion: "success",
+              name: "Submit verified package to npm staging",
+            }],
           }],
         })),
       ]);
@@ -470,6 +590,10 @@ describe("delivery policy", () => {
           head_sha: "a".repeat(40),
           name: "Stage exact package",
           run_attempt: 1,
+          steps: [{
+            conclusion: "success",
+            name: "Submit verified package to npm staging",
+          }],
         }],
       }));
       const forgedLegacyStage = await runWorkflowScript(script, {
@@ -478,7 +602,30 @@ describe("delivery policy", () => {
         MOCK_NPM_LATEST: "0.3.1",
       });
       expect(forgedLegacyStage.exitCode).not.toBe(0);
-      expect(forgedLegacyStage.stderr).toContain("lacks a version-bound stage job");
+      expect(forgedLegacyStage.stderr).toContain("unsealed generic stage job");
+
+      await Promise.all([
+        writeFile(runsPath, JSON.stringify({
+          total_count: 1,
+          workflow_runs: [completedRun],
+        })),
+        writeFile(jobsPath, JSON.stringify({
+          total_count: 1,
+          jobs: [{
+            conclusion: "failure",
+            head_sha: "b".repeat(40),
+            name: "Stage exact package v0.3.3",
+            run_attempt: 1,
+            steps: [{
+              conclusion: "failure",
+              name: "Revalidate current main and submit exact package to npm staging",
+            }],
+          }],
+        })),
+      ]);
+      const writeWithoutIntent = await runWorkflowScript(script, environment);
+      expect(writeWithoutIntent.exitCode).not.toBe(0);
+      expect(writeWithoutIntent.stderr).toContain("terminal write without one durable intent");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

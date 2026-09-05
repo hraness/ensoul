@@ -49,28 +49,50 @@ Collect validated candidates into a less-frequent stable train. Only when the st
 version is ready for public npm delivery should an agent dispatch the same workflow with
 `publish_to_npm=true`, then request the one unavoidable staged-publication approval below.
 Keep only one pending stable stage: the workflow requires its version to be newer than
-the current public `dist-tags.latest`, records the version in the successful stage job
-name, and rejects a later dispatch while Actions history shows a successfully staged
-version newer than public `latest`. It re-reads `latest` at the mutation boundary,
+the current public `dist-tags.latest`, records a successful version-bound Actions intent
+immediately before the terminal npm mutation step, and rejects a later dispatch while
+retained Actions history contains an unresolved intent newer than public `latest`. The
+history scan includes every attempt of the current run as well as completed `main`
+dispatches, so rerunning a failed job cannot hide its earlier write intent. The workflow
+re-reads `latest` at the mutation boundary,
 rejects packed top-level or `publishConfig.tag` overrides, proves pinned npm's dist-tag
 is its clean built-in `latest` default under empty user and global configuration, and
 does not pass npm's non-default `--tag` option.
 
-The only successful pre-versioned staging jobs are sealed to their provider-owned
-records: run `33263116309`, attempt `1`, source
-`e8308cb3f89fd38377d68196b1d75a64675d2c6b`, version `0.3.0`; and run
+The only generic-name jobs that reached the historical terminal staging command are
+sealed to their provider-owned records: failed write run `33262478732`, attempt `1`,
+source `e8308cb3f89fd38377d68196b1d75a64675d2c6b`, version `0.3.0`; successful
+retry run `33263116309` with that same attempt, source, and version; and successful run
 `33558844386`, attempt `1`, source
-`46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674`, version `0.3.1`. Every later
-successful stage must carry its stable version in the job name, and the lock reads all
-run attempts so a later rerun cannot hide an earlier successful stage.
+`46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674`, version `0.3.1`. The failed
+client result remains an intent because an ambiguous provider write must be treated as
+possibly successful. Public `latest` has already released these older intents, but the
+workflow validates their exact run, attempt, source, job result, and terminal-step result
+while Actions retains them. Every later mutation requires a successful intent step in a
+stable-version job; an unsealed generic record or terminal write without one intent
+fails closed.
 
-If npm rejects a staged candidate, reject that exact version through npm first (the
-provider requires two-factor authentication), then dispatch the current `main`
+If an npm write fails, returns ambiguously, or a staged candidate is rejected, use an
+authenticated npm session or npmjs.com to resolve that exact attempted version first.
+Reject a stage that exists, or prove that the failed write created none; this provider
+operation may require two-factor authentication. Then dispatch the current `main`
 replacement with `publish_to_npm=true` and
-`resolved_stage_version=<rejected version>`. The owner-authorized recovery input
-releases only that exact blocking Actions-history record; leave it empty normally. A
-successful public promotion releases the lock automatically when the version becomes
-`dist-tags.latest`.
+`resolved_stage_version=<cleared version>`. The history guard accepts only one exact
+outstanding intent, and the next successful step records that clearance durably before
+continuing. A crash before the clearance step leaves the intent locked; a crash after it
+does not make later runs repeat the resolution. Leave the input empty normally. A
+successful public promotion releases matching older intents automatically when the
+version becomes `dist-tags.latest`.
+
+npm 11.19.0 allows multiple pending stages and exposes no atomic one-pending setting.
+Its trusted-publishing OIDC token can publish a stage but cannot authorize `npm stage
+list`, so the checkout-free workflow cannot use npm as a provider-side inventory read.
+The retained Actions-intent ledger therefore serializes only this canonical workflow;
+it does not prove that npm forbids or that OIDC can observe an out-of-band stage. Treat
+any locally or externally created stage as a release incident: promote or reject it
+through an authenticated maintainer session before another workflow dispatch. Human
+approval order controls `latest`; workflow concurrency cannot serialize an external
+mutation.
 
 The OIDC-bearing stage job contains no checkout or repository code. Before it sets up npm,
 it reads the current Actions attempt and fails closed unless both the actor and triggering
