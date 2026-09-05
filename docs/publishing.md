@@ -68,9 +68,12 @@ retry run `33263116309` with that same attempt, source, and version; and success
 client result remains an intent because an ambiguous provider write must be treated as
 possibly successful. Public `latest` has already released these older intents, but the
 workflow validates their exact run, attempt, source, job result, and terminal-step result
-while Actions retains them. Every later mutation requires a successful intent step in a
-stable-version job; an unsealed generic record or terminal write without one intent
-fails closed.
+while Actions retains them. Every later terminal write is inspected before the job display
+name is trusted, so renaming a job cannot hide a mutation. A failure, cancellation,
+timeout, or success result requires exactly one successful durable intent at the
+immediately preceding positive Actions step number in an exact stable-version job; an
+unsealed generic record, missing intent, unsafe step number, or reversed order fails
+closed.
 
 If an npm write fails, returns ambiguously, or a staged candidate is rejected, use an
 authenticated npm session or npmjs.com to resolve that exact attempted version first.

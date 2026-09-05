@@ -349,6 +349,13 @@ describe("delivery policy", () => {
     expect(stage).toContain("jobs?filter=all&per_page=100");
     expect(stage).toContain("inspectRunJobs(currentRunNumber)");
     expect(stage).toContain("terminal write without one durable intent");
+    expect(stage).toContain("terminal write is not immediately preceded by its durable intent");
+    expect(stage).toContain("!Number.isSafeInteger(intentNumber)");
+    expect(stage).toContain("intentNumber < 1");
+    expect(stage).toContain("!Number.isSafeInteger(terminalNumber)");
+    expect(stage).toContain("terminalNumber < 1");
+    expect(stage.indexOf("const terminalWrites = job.steps.filter"))
+      .toBeLessThan(stage.indexOf('!job.name.startsWith("Stage exact package")'));
     expect(stage).toContain("33262478732");
     expect(stage).toContain("33263116309");
     expect(stage).toContain("33558844386");
@@ -429,9 +436,11 @@ describe("delivery policy", () => {
         steps: [{
           conclusion: "success",
           name: "Record exclusive stable-stage intent",
+          number: 7,
         }, {
           conclusion: "failure",
           name: "Revalidate current main and submit exact package to npm staging",
+          number: 8,
         }],
       };
       await Promise.all([
@@ -626,6 +635,96 @@ describe("delivery policy", () => {
       const writeWithoutIntent = await runWorkflowScript(script, environment);
       expect(writeWithoutIntent.exitCode).not.toBe(0);
       expect(writeWithoutIntent.stderr).toContain("terminal write without one durable intent");
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 1,
+        jobs: [{
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          name: "Hostile renamed npm staging job",
+          run_attempt: 1,
+          steps: [{
+            conclusion: "failure",
+            name: "Revalidate current main and submit exact package to npm staging",
+            number: 8,
+          }],
+        }],
+      }));
+      const renamedJobWriteWithoutIntent = await runWorkflowScript(script, environment);
+      expect(renamedJobWriteWithoutIntent.exitCode).not.toBe(0);
+      expect(renamedJobWriteWithoutIntent.stderr).toContain(
+        "terminal write without one durable intent",
+      );
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 1,
+        jobs: [{
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          name: "Hostile renamed npm staging job",
+          run_attempt: 1,
+          steps: [{
+            conclusion: "success",
+            name: "Record exclusive stable-stage intent",
+            number: 7,
+          }, {
+            conclusion: "failure",
+            name: "Revalidate current main and submit exact package to npm staging",
+            number: 8,
+          }],
+        }],
+      }));
+      const renamedJobWithIntent = await runWorkflowScript(script, environment);
+      expect(renamedJobWithIntent.exitCode).not.toBe(0);
+      expect(renamedJobWithIntent.stderr).toContain("lacks a version-bound stage job");
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 1,
+        jobs: [{
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          name: "Stage exact package v0.3.3",
+          run_attempt: 1,
+          steps: [{
+            conclusion: "failure",
+            name: "Revalidate current main and submit exact package to npm staging",
+            number: 7,
+          }, {
+            conclusion: "success",
+            name: "Record exclusive stable-stage intent",
+            number: 8,
+          }],
+        }],
+      }));
+      const reversedIntentOrder = await runWorkflowScript(script, environment);
+      expect(reversedIntentOrder.exitCode).not.toBe(0);
+      expect(reversedIntentOrder.stderr).toContain(
+        "terminal write is not immediately preceded by its durable intent",
+      );
+
+      await writeFile(jobsPath, JSON.stringify({
+        total_count: 1,
+        jobs: [{
+          conclusion: "failure",
+          head_sha: "b".repeat(40),
+          name: "Stage exact package v0.3.3",
+          run_attempt: 1,
+          steps: [{
+            conclusion: "success",
+            name: "Record exclusive stable-stage intent",
+            number: 0,
+          }, {
+            conclusion: "failure",
+            name: "Revalidate current main and submit exact package to npm staging",
+            number: 1,
+          }],
+        }],
+      }));
+      const unsafeStepNumber = await runWorkflowScript(script, environment);
+      expect(unsafeStepNumber.exitCode).not.toBe(0);
+      expect(unsafeStepNumber.stderr).toContain(
+        "terminal write is not immediately preceded by its durable intent",
+      );
     } finally {
       await rm(root, { force: true, recursive: true });
     }
