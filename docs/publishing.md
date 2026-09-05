@@ -108,15 +108,20 @@ proxy, authentication, or other npm configuration is rejected before OIDC public
 2. Dispatch `Build or stage npm package` from current `main` with `publish_to_npm=true`. The workflow proves the version is new, builds and smokes one exact artifact, and submits it through npm OIDC with provenance.
 3. Review and approve the staged package through npm's interactive stage flow.
 4. Verify the live registry artifact against current `main` with `bun scripts/package-smoke.ts`.
-5. Create and push `v<VERSION>` only after that verification. The tag workflow re-runs the tests, requires that exact version to remain `dist-tags.latest`, validates both archives, compares a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and creates an immutable GitHub Release. It also runs pinned npm's signature audit in an isolated install, requires no missing or invalid signatures, and verifies exactly one npm publish attestation plus one SLSA v1 provenance statement against the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
+5. Create and push `v<VERSION>` only after that verification. The tag workflow keeps product tests and source packaging on the exact tagged commit, but first requires the tag's `release.yml` and `npm-stage.yml` to be byte-identical to current `main`. After packing, it materializes `package-smoke.ts` and `npm-provenance-identity.ts` from that exact current-`main` commit into nonconflicting paths beside the tagged helpers, verifies their Git blob identities, and invokes them with Bun environment/config discovery disabled. Those current helpers validate both archives, compare a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and verify the pinned npm signature audit. The audit must contain no missing or invalid signatures, exactly one npm publish attestation, and exactly one SLSA v1 provenance statement bound to the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
 6. Run one normal skills CLI install for the released tag and verify the canonical skills.sh page.
 
 Repository immutable releases are a bootstrap precondition whose live state must
 be read back before use. The tag workflow checks the protected annotated tag,
 immutable owner identity, exact public repository and workflow IDs, both the
 original and attempt-specific triggering actor, current tag target, and current
-`main` reachability before its write-scoped job creates any release. Immediately
-before creation it rechecks npm `latest`. A pre-existing release is accepted only
+`main` reachability before its write-scoped job creates any release. The verifier
+records the exact current-`main` commit that supplied its helper code. The write job
+checks out `main`, imports its live head again, and requires the tagged release and
+npm-stage workflows still to equal that head and the recorded helper files still to
+equal it. Immediately before creation it rechecks npm `latest`, the tag target, and
+both current-main closures, and fails if `main` moved during final authorization. A
+pre-existing release is accepted only
 when its tag, title, provenance body, immutable state, empty assets, and immutable
 GitHub Actions bot identity all match the exact source and workflow run; any other
 pre-existing release fails closed. A collaborator rerun cannot reuse the original

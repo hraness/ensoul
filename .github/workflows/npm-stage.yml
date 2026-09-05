@@ -684,7 +684,7 @@ jobs:
               throw new Error("Packed manifest tar header is invalid");
             }
             const name = tarText(header, 0, 100);
-            const prefix = tarText(header, 345, 155);
+            const prefix = tarText(header, 345, header[475] === 0 ? 130 : 155);
             const path = prefix === "" ? name : `${prefix}/${name}`;
             if (path.startsWith("/") || path.includes("\\") || path.split("/").some(part => part === "" || part === "." || part === "..")) {
               throw new Error("Packed manifest tar path is unsafe");

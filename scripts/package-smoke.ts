@@ -131,7 +131,7 @@ export function readTarGzip(archiveBytes: Uint8Array): readonly TarEntry[] {
       fail("npm archive is not a supported POSIX USTAR archive");
     }
     const name = tarText(header, 0, 100);
-    const prefix = tarText(header, 345, 155);
+    const prefix = tarText(header, 345, header[475] === 0 ? 130 : 155);
     const fullName = prefix === "" ? name : `${prefix}/${name}`;
     if (!safeRelativePath(fullName.replace(/\/$/u, ""))) fail("npm archive contains an unsafe path");
     const mode = tarOctal(header, 100, 8, "tar mode") & 0o7777;

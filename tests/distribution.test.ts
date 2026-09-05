@@ -690,6 +690,126 @@ describe("delivery policy", () => {
     }
   });
 
+  test("both tar readers apply npm's extended USTAR prefix discriminator", async () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
+    const smoke = readFileSync(join(ROOT, "scripts/package-smoke.ts"), "utf8");
+    const script = workflowStepScript(workflow, "Rebind downloaded package without repository code");
+    const root = await mkdtemp(join(tmpdir(), "ensoul-stage-extended-prefix-"));
+    expect(smoke).toContain("header[475] === 0 ? 130 : 155");
+    expect(workflow).toContain("header[475] === 0 ? 130 : 155");
+    try {
+      const artifact = await createStageArtifact(root);
+      const hostileArchive = await rewriteStageArchive(artifact, (_tar, header, _bodyOffset, _size, path) => {
+        if (path !== "package/package.json") return false;
+        header.fill(0, 0, 100);
+        header.write("package.json", 0, "ascii");
+        header.fill(0, 345, 500);
+        header.write(`${"a".repeat(130)}/../package`, 345, "ascii");
+        writeTarChecksum(header);
+        return true;
+      });
+      expect(() => readTarGzip(hostileArchive)).toThrow("unsafe path");
+      const rejected = await runWorkflowScript(script, stageArtifactEnvironment(root, artifact));
+      expect(rejected.exitCode).not.toBe(0);
+      expect(rejected.stderr).toContain("Packed manifest tar path is unsafe");
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  test("release identity closes tagged controls over current main", async () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+    const script = workflowStepScript(workflow, "Verify release identity");
+    const root = await mkdtemp(join(tmpdir(), "ensoul-release-identity-"));
+    const binaryDirectory = join(root, "bin");
+    const output = join(root, "output");
+    const sourceSha = "b".repeat(40);
+    const mainSha = "c".repeat(40);
+    const releaseTag = "v0.3.3";
+    try {
+      await mkdir(binaryDirectory, { recursive: true });
+      await Promise.all([
+        writeFile(output, ""),
+        writeFile(join(binaryDirectory, "bun"), [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          'if [[ "$1" == -e ]]; then printf \'0.3.3\\n\'; else exit 2; fi',
+        ].join("\n")),
+        writeFile(join(binaryDirectory, "git"), [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          'case "$*" in',
+          '  "check-ref-format refs/heads/main") ;;',
+          '  "check-ref-format refs/tags/v0.3.3") ;;',
+          '  "fetch --no-tags origin refs/heads/main:refs/remotes/origin/main") ;;',
+          '  "fetch --no-tags origin refs/tags/v0.3.3:refs/ensoul-release-tags/v0.3.3") ;;',
+          '  "fetch --force --tags origin") ;;',
+          '  "rev-parse origin/main") printf \'%s\\n\' "$MOCK_MAIN_SHA" ;;',
+          '  "rev-parse HEAD") printf \'%s\\n\' "$MOCK_SOURCE_SHA" ;;',
+          '  "rev-parse refs/ensoul-release-tags/v0.3.3^{commit}") printf \'%s\\n\' "$MOCK_SOURCE_SHA" ;;',
+          '  "rev-parse refs/tags/v0.3.3^{commit}") printf \'%s\\n\' "$MOCK_SOURCE_SHA" ;;',
+          '  "cat-file -t refs/ensoul-release-tags/v0.3.3") printf \'tag\\n\' ;;',
+          '  "merge-base --is-ancestor "*) ;;',
+          '  "diff --quiet --no-ext-diff --no-textconv "*) [[ "${MOCK_CONTROL_DRIFT:-false}" != true ]] ;;',
+          '  "tag --list v"*) printf \'v0.3.3\\n\' ;;',
+          '  *) echo "unexpected git invocation: $*" >&2; exit 2 ;;',
+          "esac",
+        ].join("\n")),
+      ]);
+      await Promise.all([
+        chmod(join(binaryDirectory, "bun"), 0o755),
+        chmod(join(binaryDirectory, "git"), 0o755),
+      ]);
+      const environment = {
+        PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+        DEFAULT_BRANCH: "main",
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_OUTPUT: output,
+        GITHUB_REF: `refs/tags/${releaseTag}`,
+        GITHUB_REF_NAME: releaseTag,
+        GITHUB_SHA: sourceSha,
+        MOCK_MAIN_SHA: mainSha,
+        MOCK_SOURCE_SHA: sourceSha,
+        REF_PROTECTED: "true",
+      };
+
+      const accepted = await runWorkflowScript(script, environment);
+      expect(accepted.exitCode).toBe(0);
+      expect(await readFile(output, "utf8")).toContain(`workflow_sha=${mainSha}`);
+
+      await writeFile(output, "");
+      const drifted = await runWorkflowScript(script, {
+        ...environment,
+        MOCK_CONTROL_DRIFT: "true",
+      });
+      expect(drifted.exitCode).not.toBe(0);
+      expect(`${drifted.stderr}${drifted.stdout}`).toContain(
+        "Tagged and current release workflow controls differ",
+      );
+      expect(await readFile(output, "utf8")).toBe("");
+
+      const wrongSource = await runWorkflowScript(script, {
+        ...environment,
+        GITHUB_SHA: "d".repeat(40),
+      });
+      expect(wrongSource.exitCode).not.toBe(0);
+      expect(`${wrongSource.stderr}${wrongSource.stdout}`).toContain(
+        "Tag does not match the checked release commit",
+      );
+
+      const wrongEvent = await runWorkflowScript(script, {
+        ...environment,
+        GITHUB_EVENT_NAME: "workflow_dispatch",
+      });
+      expect(wrongEvent.exitCode).not.toBe(0);
+      expect(`${wrongEvent.stderr}${wrongEvent.stdout}`).toContain(
+        "Release requires a protected owner-created stable tag",
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
   test("verifies public npm bytes before immutable release publication", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
     expect(workflow).toContain('npm pack "$package_name@$package_version"');
@@ -698,7 +818,11 @@ describe("delivery policy", () => {
     expect(workflow).toContain('npm view "$package_name" dist-tags.latest');
     expect(workflow).toContain("npm audit signatures");
     expect(workflow).toContain("--include-attestations");
-    expect(workflow).toContain("scripts/npm-provenance-identity.ts");
+    expect(workflow).toContain('git show "$WORKFLOW_SHA:scripts/package-smoke.ts"');
+    expect(workflow).toContain('git show "$WORKFLOW_SHA:scripts/npm-provenance-identity.ts"');
+    expect(workflow).toContain('git hash-object "$current_tool"');
+    expect(workflow).toContain('bun --no-env-file --config=/dev/null run "$current_package_smoke"');
+    expect(workflow).toContain('bun --no-env-file --config=/dev/null run "$current_provenance_identity"');
     expect(workflow).toContain("Published npm provenance is not bound to the completed owner-authorized stage attempt");
     expect(workflow).toContain('attempt.status !== "completed"');
     expect(workflow).toContain('attempt.conclusion !== "success"');
@@ -711,6 +835,10 @@ describe("delivery policy", () => {
     expect(workflow).toContain("release.author?.id !== 41898282");
     expect(workflow).toContain('release.author?.login !== "github-actions[bot]"');
     expect(workflow).toContain('release.body !== process.env.EXPECTED_BODY');
+    expect(workflow).toContain("Tagged and current release workflow controls differ");
+    expect(workflow).toContain("verify_current_release_controls");
+    expect(workflow).toContain("Current release verifier controls changed after verification");
+    expect(workflow).toContain("ref: main");
     expect(workflow).not.toContain('gh api "/repos/$GITHUB_REPOSITORY/immutable-releases"');
     expect(workflow.indexOf("Require immutable releases before publication"))
       .toBeLessThan(workflow.indexOf('gh release create "$GITHUB_REF_NAME"'));
@@ -728,6 +856,7 @@ describe("delivery policy", () => {
     const releaseCreated = join(root, "release-created");
     const commandLog = join(root, "commands.log");
     const sourceSha = "b".repeat(40);
+    const mainSha = "c".repeat(40);
     const releaseVersion = "0.3.3";
     const releaseTag = `v${releaseVersion}`;
     const runId = "76543";
@@ -768,6 +897,9 @@ describe("delivery policy", () => {
           '    if [[ "$argument" == /repos/* ]]; then endpoint="$argument"; fi',
           '  done',
           '  case "$endpoint" in',
+          '    */commits/main) printf \'%s\\n\' "$MOCK_MAIN_SHA" ;;',
+          '    */commits/v*) printf \'%s\\n\' "$MOCK_SOURCE_SHA" ;;',
+          '    */compare/*) printf \'ahead\\n\' ;;',
           '    */releases/tags/*)',
           '      if [[ "$MOCK_RELEASE_PRESENT" == true || -f "$MOCK_RELEASE_CREATED" ]]; then',
           '        cat "$MOCK_RELEASE_JSON"',
@@ -786,25 +918,49 @@ describe("delivery policy", () => {
           '  exit 2',
           "fi",
         ].join("\n")),
+        writeFile(join(binaryDirectory, "git"), [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          'case "$*" in',
+          '  "fetch --no-tags --force origin "*) ;;',
+          '  "rev-parse refs/remotes/ensoul-release-current/main") printf \'%s\\n\' "$MOCK_MAIN_SHA" ;;',
+          '  "merge-base --is-ancestor "*) ;;',
+          '  "diff --quiet --no-ext-diff --no-textconv "*"scripts/package-smoke.ts"*)',
+          '    [[ "${MOCK_HELPER_DRIFT:-false}" != true ]]',
+          '    ;;',
+          '  "diff --quiet --no-ext-diff --no-textconv "*".github/workflows/release.yml"*)',
+          '    [[ "${MOCK_WORKFLOW_DRIFT:-false}" != true ]]',
+          '    ;;',
+          '  *) echo "unexpected git invocation: $*" >&2; exit 2 ;;',
+          "esac",
+        ].join("\n")),
       ]);
       await Promise.all([
         chmod(join(binaryDirectory, "npm"), 0o755),
         chmod(join(binaryDirectory, "gh"), 0o755),
+        chmod(join(binaryDirectory, "git"), 0o755),
       ]);
       const environment = {
         PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
+        DEFAULT_BRANCH: "main",
         GH_COMMAND_LOG: commandLog,
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_REF: `refs/tags/${releaseTag}`,
         GITHUB_REF_NAME: releaseTag,
         GITHUB_REPOSITORY: "hraness/ensoul",
         GITHUB_RUN_ID: runId,
+        GITHUB_SHA: sourceSha,
+        MOCK_MAIN_SHA: mainSha,
         MOCK_NPM_LATEST: releaseVersion,
         MOCK_RELEASE_CREATED: releaseCreated,
         MOCK_RELEASE_JSON: releaseJson,
         MOCK_RELEASE_PRESENT: "true",
         MOCK_RELEASE_TAG: releaseTag,
+        MOCK_SOURCE_SHA: sourceSha,
         RUNNER_TEMP: root,
         VERIFIED_SOURCE_SHA: sourceSha,
         VERIFIED_TAG: releaseTag,
+        WORKFLOW_SHA: mainSha,
       };
 
       const acceptedExisting = await runWorkflowScript(script, environment);
@@ -820,6 +976,26 @@ describe("delivery policy", () => {
       expect(hostileExisting.stderr).toContain("not the exact immutable Actions-authored release");
 
       await writeFile(releaseJson, JSON.stringify(exactRelease));
+      await writeFile(commandLog, "");
+      const workflowDrift = await runWorkflowScript(script, {
+        ...environment,
+        MOCK_RELEASE_PRESENT: "false",
+        MOCK_WORKFLOW_DRIFT: "true",
+      });
+      expect(workflowDrift.exitCode).not.toBe(0);
+      expect(workflowDrift.stderr).toContain("Tagged and current release workflow controls differ");
+      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
+
+      await writeFile(commandLog, "");
+      const helperDrift = await runWorkflowScript(script, {
+        ...environment,
+        MOCK_HELPER_DRIFT: "true",
+        MOCK_RELEASE_PRESENT: "false",
+      });
+      expect(helperDrift.exitCode).not.toBe(0);
+      expect(helperDrift.stderr).toContain("Current release verifier controls changed after verification");
+      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
+
       await writeFile(commandLog, "");
       const staleNpm = await runWorkflowScript(script, {
         ...environment,
