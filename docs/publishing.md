@@ -49,28 +49,53 @@ Collect validated candidates into a less-frequent stable train. Only when the st
 version is ready for public npm delivery should an agent dispatch the same workflow with
 `publish_to_npm=true`, then request the one unavoidable staged-publication approval below.
 Keep only one pending stable stage: the workflow requires its version to be newer than
-the current public `dist-tags.latest`, records the version in the successful stage job
-name, and rejects a later dispatch while Actions history shows a successfully staged
-version newer than public `latest`. It re-reads `latest` at the mutation boundary,
+the current public `dist-tags.latest`, records a successful version-bound Actions intent
+immediately before the terminal npm mutation step, and rejects a later dispatch while
+retained Actions history contains an unresolved intent newer than public `latest`. The
+history scan includes every attempt of the current run as well as completed `main`
+dispatches, so rerunning a failed job cannot hide its earlier write intent. The workflow
+re-reads `latest` at the mutation boundary,
 rejects packed top-level or `publishConfig.tag` overrides, proves pinned npm's dist-tag
 is its clean built-in `latest` default under empty user and global configuration, and
 does not pass npm's non-default `--tag` option.
 
-The only successful pre-versioned staging jobs are sealed to their provider-owned
-records: run `33263116309`, attempt `1`, source
-`e8308cb3f89fd38377d68196b1d75a64675d2c6b`, version `0.3.0`; and run
+The only generic-name jobs that reached the historical terminal staging command are
+sealed to their provider-owned records: failed write run `33262478732`, attempt `1`,
+source `e8308cb3f89fd38377d68196b1d75a64675d2c6b`, version `0.3.0`; successful
+retry run `33263116309` with that same attempt, source, and version; and successful run
 `33558844386`, attempt `1`, source
-`46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674`, version `0.3.1`. Every later
-successful stage must carry its stable version in the job name, and the lock reads all
-run attempts so a later rerun cannot hide an earlier successful stage.
+`46c8b14d03fecdfe8d75e5a61d5f7bfcc255e674`, version `0.3.1`. The failed
+client result remains an intent because an ambiguous provider write must be treated as
+possibly successful. Public `latest` has already released these older intents, but the
+workflow validates their exact run, attempt, source, job result, and terminal-step result
+while Actions retains them. Every later terminal write is inspected before the job display
+name is trusted, so renaming a job cannot hide a mutation. A failure, cancellation,
+timeout, or success result requires exactly one successful durable intent at the
+immediately preceding positive Actions step number in an exact stable-version job; an
+unsealed generic record, missing intent, unsafe step number, or reversed order fails
+closed.
 
-If npm rejects a staged candidate, reject that exact version through npm first (the
-provider requires two-factor authentication), then dispatch the current `main`
+If an npm write fails, returns ambiguously, or a staged candidate is rejected, use an
+authenticated npm session or npmjs.com to resolve that exact attempted version first.
+Reject a stage that exists, or prove that the failed write created none; this provider
+operation may require two-factor authentication. Then dispatch the current `main`
 replacement with `publish_to_npm=true` and
-`resolved_stage_version=<rejected version>`. The owner-authorized recovery input
-releases only that exact blocking Actions-history record; leave it empty normally. A
-successful public promotion releases the lock automatically when the version becomes
-`dist-tags.latest`.
+`resolved_stage_version=<cleared version>`. The history guard accepts only one exact
+outstanding intent, and the next successful step records that clearance durably before
+continuing. A crash before the clearance step leaves the intent locked; a crash after it
+does not make later runs repeat the resolution. Leave the input empty normally. A
+successful public promotion releases matching older intents automatically when the
+version becomes `dist-tags.latest`.
+
+npm 11.19.0 allows multiple pending stages and exposes no atomic one-pending setting.
+Its trusted-publishing OIDC token can publish a stage but cannot authorize `npm stage
+list`, so the checkout-free workflow cannot use npm as a provider-side inventory read.
+The retained Actions-intent ledger therefore serializes only this canonical workflow;
+it does not prove that npm forbids or that OIDC can observe an out-of-band stage. Treat
+any locally or externally created stage as a release incident: promote or reject it
+through an authenticated maintainer session before another workflow dispatch. Human
+approval order controls `latest`; workflow concurrency cannot serialize an external
+mutation.
 
 The OIDC-bearing stage job contains no checkout or repository code. Before it sets up npm,
 it reads the current Actions attempt and fails closed unless both the actor and triggering
@@ -86,15 +111,20 @@ proxy, authentication, or other npm configuration is rejected before OIDC public
 2. Dispatch `Build or stage npm package` from current `main` with `publish_to_npm=true`. The workflow proves the version is new, builds and smokes one exact artifact, and submits it through npm OIDC with provenance.
 3. Review and approve the staged package through npm's interactive stage flow.
 4. Verify the live registry artifact against current `main` with `bun scripts/package-smoke.ts`.
-5. Create and push `v<VERSION>` only after that verification. The tag workflow re-runs the tests, requires that exact version to remain `dist-tags.latest`, validates both archives, compares a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and creates an immutable GitHub Release. It also runs pinned npm's signature audit in an isolated install, requires no missing or invalid signatures, and verifies exactly one npm publish attestation plus one SLSA v1 provenance statement against the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
+5. Create and push `v<VERSION>` only after that verification. The tag workflow keeps product tests and source packaging on the exact tagged commit, but first requires the tag's `release.yml` and `npm-stage.yml` to be byte-identical to current `main`. After packing, it materializes `package-smoke.ts` and `npm-provenance-identity.ts` from that exact current-`main` commit into nonconflicting paths beside the tagged helpers, verifies their Git blob identities, and invokes them with Bun environment/config discovery disabled. Those current helpers validate both archives, compare a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and verify the pinned npm signature audit. The audit must contain no missing or invalid signatures, exactly one npm publish attestation, and exactly one SLSA v1 provenance statement bound to the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
 6. Run one normal skills CLI install for the released tag and verify the canonical skills.sh page.
 
 Repository immutable releases are a bootstrap precondition whose live state must
 be read back before use. The tag workflow checks the protected annotated tag,
 immutable owner identity, exact public repository and workflow IDs, both the
 original and attempt-specific triggering actor, current tag target, and current
-`main` reachability before its write-scoped job creates any release. Immediately
-before creation it rechecks npm `latest`. A pre-existing release is accepted only
+`main` reachability before its write-scoped job creates any release. The verifier
+records the exact current-`main` commit that supplied its helper code. The write job
+checks out `main`, imports its live head again, and requires the tagged release and
+npm-stage workflows still to equal that head and the recorded helper files still to
+equal it. Immediately before creation it rechecks npm `latest`, the tag target, and
+both current-main closures, and fails if `main` moved during final authorization. A
+pre-existing release is accepted only
 when its tag, title, provenance body, immutable state, empty assets, and immutable
 GitHub Actions bot identity all match the exact source and workflow run; any other
 pre-existing release fails closed. A collaborator rerun cannot reuse the original

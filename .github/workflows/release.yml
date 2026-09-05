@@ -124,6 +124,13 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME is not reachable from $DEFAULT_BRANCH"
             exit 1
           fi
+          if ! git diff --quiet --no-ext-diff --no-textconv \
+            "$tag_commit" "$default_head" -- \
+            .github/workflows/release.yml \
+            .github/workflows/npm-stage.yml; then
+            echo "::error::Tagged and current release workflow controls differ"
+            exit 1
+          fi
           git fetch --force --tags origin
           if [[ "$(git rev-parse "refs/tags/$expected_tag^{commit}")" != "$tag_commit" ]]; then
             echo "::error::Tag $expected_tag changed during verification"
@@ -135,7 +142,7 @@ jobs:
             exit 1
           fi
           printf 'default_branch=%s\nsource_sha=%s\ntag=%s\nworkflow_sha=%s\n' \
-            "$DEFAULT_BRANCH" "$tag_commit" "$GITHUB_REF_NAME" "$checked_out_head" \
+            "$DEFAULT_BRANCH" "$tag_commit" "$GITHUB_REF_NAME" "$default_head" \
             >> "$GITHUB_OUTPUT"
       - run: bun run typecheck
       - run: bun run test
@@ -144,6 +151,7 @@ jobs:
       - name: Verify exact public npm artifact
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW_SHA: ${{ steps.identity.outputs.workflow_sha }}
         run: |
           set -euo pipefail
           package_name="$(bun -e 'console.log((await Bun.file("./package.json").json()).name)')"
@@ -182,8 +190,41 @@ jobs:
           fi
           source_archive="$source_directory/$source_name"
           registry_archive="$registry_directory/$registry_name"
-          source_result="$(bun scripts/package-smoke.ts --archive "$source_archive" --pack-json "$source_json")"
-          registry_result="$(bun scripts/package-smoke.ts --archive "$registry_archive" --pack-json "$registry_json")"
+          if [[ ! "$WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Current release verifier identity is invalid"
+            exit 1
+          fi
+          current_package_smoke="$GITHUB_WORKSPACE/scripts/.ensoul-current-package-smoke.ts"
+          current_provenance_identity="$GITHUB_WORKSPACE/scripts/.ensoul-current-npm-provenance-identity.ts"
+          if [[ -e "$current_package_smoke" || -L "$current_package_smoke" || \
+                -e "$current_provenance_identity" || -L "$current_provenance_identity" ]]; then
+            echo "::error::Current release verifier materialization path already exists"
+            exit 1
+          fi
+          git show "$WORKFLOW_SHA:scripts/package-smoke.ts" > "$current_package_smoke"
+          git show "$WORKFLOW_SHA:scripts/npm-provenance-identity.ts" > "$current_provenance_identity"
+          current_tools=(
+            "scripts/package-smoke.ts:$current_package_smoke"
+            "scripts/npm-provenance-identity.ts:$current_provenance_identity"
+          )
+          for current_tool_binding in "${current_tools[@]}"; do
+            relative_tool="${current_tool_binding%%:*}"
+            current_tool="${current_tool_binding#*:}"
+            if [[ ! -f "$current_tool" || -L "$current_tool" ]]; then
+              echo "::error::Current release verifier is missing or linked: $relative_tool"
+              exit 1
+            fi
+            expected_blob="$(git rev-parse "$WORKFLOW_SHA:$relative_tool")"
+            actual_blob="$(git hash-object "$current_tool")"
+            if [[ "$actual_blob" != "$expected_blob" ]]; then
+              echo "::error::Current release verifier materialization changed: $relative_tool"
+              exit 1
+            fi
+          done
+          source_result="$(bun --no-env-file --config=/dev/null run "$current_package_smoke" \
+            --archive "$source_archive" --pack-json "$source_json")"
+          registry_result="$(bun --no-env-file --config=/dev/null run "$current_package_smoke" \
+            --archive "$registry_archive" --pack-json "$registry_json")"
           printf '%s\n' "$source_result" "$registry_result"
           source_payload_sha256="$(bun -e 'console.log(JSON.parse(process.argv.at(-1)).payloadSha256)' "$source_result")"
           registry_payload_sha256="$(bun -e 'console.log(JSON.parse(process.argv.at(-1)).payloadSha256)' "$registry_result")"
@@ -222,7 +263,7 @@ jobs:
             --omit=optional \
             --registry=https://registry.npmjs.org \
             > "$audit_json"
-          provenance_identity="$(bun scripts/npm-provenance-identity.ts \
+          provenance_identity="$(bun --no-env-file --config=/dev/null run "$current_provenance_identity" \
             --audit-json "$audit_json" \
             --expected-source-sha "$GITHUB_SHA" \
             --expected-version "$package_version" \
@@ -312,6 +353,11 @@ jobs:
       VERIFIED_TAG: ${{ needs.verify.outputs.verified_tag }}
       WORKFLOW_SHA: ${{ needs.verify.outputs.workflow_sha }}
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
       - name: Reauthorize current release attempt
         env:
           EXPECTED_ACTOR_ID: "894119"
@@ -325,13 +371,14 @@ jobs:
           if [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ || \
                 ! "$GITHUB_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ || \
                 ! "$VERIFIED_SOURCE_SHA" =~ ^[a-f0-9]{40}$ || \
+                ! "$WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ || \
                 ! "$VERIFIED_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || \
+                "$DEFAULT_BRANCH" != main || \
                 "$GITHUB_EVENT_NAME" != push || \
                 "$GITHUB_REPOSITORY" != "$EXPECTED_REPOSITORY" || \
                 "$GITHUB_REPOSITORY_ID" != "$EXPECTED_REPOSITORY_ID" || \
                 "$GITHUB_REF" != "refs/tags/$VERIFIED_TAG" || \
-                "$GITHUB_SHA" != "$VERIFIED_SOURCE_SHA" || \
-                "$WORKFLOW_SHA" != "$VERIFIED_SOURCE_SHA" ]]; then
+                "$GITHUB_SHA" != "$VERIFIED_SOURCE_SHA" ]]; then
             echo "::error::Current release attempt is not the exact protected tag run"
             exit 1
           fi
@@ -434,8 +481,62 @@ jobs:
       - name: Publish verified GitHub release
         run: |
           set -euo pipefail
-          if [[ -z "$VERIFIED_TAG" || "$VERIFIED_TAG" != "$GITHUB_REF_NAME" ]]; then
-            echo "::error::Publish request does not match the verified tag"
+          if [[ ! "$VERIFIED_SOURCE_SHA" =~ ^[a-f0-9]{40}$ || \
+                ! "$WORKFLOW_SHA" =~ ^[a-f0-9]{40}$ || \
+                ! "$VERIFIED_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ || \
+                "$DEFAULT_BRANCH" != main || \
+                "$GITHUB_EVENT_NAME" != push || \
+                "$GITHUB_REF" != "refs/tags/$VERIFIED_TAG" || \
+                "$GITHUB_REF_NAME" != "$VERIFIED_TAG" || \
+                "$GITHUB_SHA" != "$VERIFIED_SOURCE_SHA" ]]; then
+            echo "::error::Publish request does not match the verified tag event and source"
+            exit 1
+          fi
+          verify_current_release_controls() {
+            local advertised_main imported_main
+            advertised_main="$(gh api --method GET --jq '.sha' \
+              "/repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH")"
+            git fetch --no-tags --force origin \
+              "refs/heads/$DEFAULT_BRANCH:refs/remotes/ensoul-release-current/$DEFAULT_BRANCH"
+            imported_main="$(git rev-parse "refs/remotes/ensoul-release-current/$DEFAULT_BRANCH")"
+            if [[ ! "$advertised_main" =~ ^[a-f0-9]{40}$ || \
+                  "$imported_main" != "$advertised_main" ]]; then
+              echo "::error::Could not import one exact current $DEFAULT_BRANCH authority" >&2
+              return 1
+            fi
+            if ! git merge-base --is-ancestor "$VERIFIED_SOURCE_SHA" "$imported_main" || \
+               ! git merge-base --is-ancestor "$WORKFLOW_SHA" "$imported_main"; then
+              echo "::error::Release source or reviewed verifier is no longer on current $DEFAULT_BRANCH" >&2
+              return 1
+            fi
+            if ! git diff --quiet --no-ext-diff --no-textconv \
+              "$VERIFIED_SOURCE_SHA" "$imported_main" -- \
+              .github/workflows/release.yml \
+              .github/workflows/npm-stage.yml; then
+              echo "::error::Tagged and current release workflow controls differ" >&2
+              return 1
+            fi
+            if ! git diff --quiet --no-ext-diff --no-textconv \
+              "$WORKFLOW_SHA" "$imported_main" -- \
+              scripts/package-smoke.ts \
+              scripts/npm-provenance-identity.ts; then
+              echo "::error::Current release verifier controls changed after verification" >&2
+              return 1
+            fi
+            printf '%s\n' "$imported_main"
+          }
+
+          current_tag_sha="$(gh api --method GET --jq '.sha' \
+            "/repos/$GITHUB_REPOSITORY/commits/$VERIFIED_TAG")"
+          current_default_sha="$(verify_current_release_controls)"
+          if [[ "$current_tag_sha" != "$VERIFIED_SOURCE_SHA" ]]; then
+            echo "::error::Tag $VERIFIED_TAG moved to $current_tag_sha after verification"
+            exit 1
+          fi
+          comparison_status="$(gh api --method GET --jq '.status' \
+            "/repos/$GITHUB_REPOSITORY/compare/$VERIFIED_SOURCE_SHA...$current_default_sha")"
+          if [[ "$comparison_status" != ahead && "$comparison_status" != identical ]]; then
+            echo "::error::Tag $VERIFIED_TAG is no longer reachable from $DEFAULT_BRANCH"
             exit 1
           fi
           release_title="Ensoul $VERIFIED_TAG"
@@ -486,6 +587,14 @@ jobs:
               --json --registry=https://registry.npmjs.org)"
             if [[ "$latest_before_release" != "\"${VERIFIED_TAG#v}\"" ]]; then
               echo "::error::npm latest advanced before release mutation: $latest_before_release"
+              exit 1
+            fi
+            final_tag_sha="$(gh api --method GET --jq '.sha' \
+              "/repos/$GITHUB_REPOSITORY/commits/$VERIFIED_TAG")"
+            final_default_sha="$(verify_current_release_controls)"
+            if [[ "$final_tag_sha" != "$VERIFIED_SOURCE_SHA" || \
+                  "$final_default_sha" != "$current_default_sha" ]]; then
+              echo "::error::Release tag or current $DEFAULT_BRANCH moved during final release authorization"
               exit 1
             fi
             gh release create "$GITHUB_REF_NAME" \
