@@ -1,6 +1,6 @@
 ---
 name: ensoul
-description: Turn a user-authorized corpus into a dated, evidence-calibrated, explicitly partial and revisable whole-person working model. Use when Codex is asked to understand, capture, or reconstruct a person; create a personal operating manual, master document, digital-twin or proxy bootstrap; extract worldview, values, taste, communication style, decisions, tensions, or tacit patterns; enrich a person with public research; or combine structured Ensoul source packets from Peopleblade or Message Like Me with notes, messages, posts, documents, repositories, and other evidence.
+description: Turn a user-authorized corpus into a dated, evidence-calibrated, explicitly partial and revisable whole-person working model. Use when Claude Code, Codex, or another compatible agent is asked to understand, capture, or reconstruct a person; create a personal operating manual, master document, digital-twin or proxy bootstrap; extract worldview, values, taste, communication style, decisions, tensions, or tacit patterns; enrich a person with public research; or combine structured Ensoul source packets from Peopleblade or Message Like Me with notes, messages, posts, documents, repositories, and other evidence.
 ---
 
 # Ensoul
