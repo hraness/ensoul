@@ -13,6 +13,7 @@ const MAXIMUM_PACKED_BYTES = 512 * 1024;
 const MAXIMUM_UNPACKED_BYTES = 2 * 1024 * 1024;
 
 export const EXPECTED_PATHS = new Set([
+  "DISCLOSURE",
   "LICENSE",
   "README.md",
   "VERSION",

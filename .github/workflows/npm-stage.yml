@@ -1,7 +1,13 @@
-name: Stage npm package
+name: Build or stage npm package
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_to_npm:
+        description: Submit the verified artifact to npm staging
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -114,7 +120,9 @@ jobs:
 
   stage:
     name: Stage exact package
+    if: ${{ inputs.publish_to_npm }}
     needs: verify
+    environment: npm-stage
     permissions:
       contents: read
       id-token: write

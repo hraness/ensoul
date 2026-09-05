@@ -21,6 +21,7 @@ describe("distribution identity", () => {
       engines: { bun: ">=1.3.14" },
       repository: { type: "git", url: "git+https://github.com/hraness/ensoul.git" },
       publishConfig: { access: "public", registry: "https://registry.npmjs.org" },
+      contentPolicy: { class: "dual-use" },
     });
     expect(package_.dependencies).toBeUndefined();
     expect(package_.optionalDependencies).toBeUndefined();
@@ -32,6 +33,7 @@ describe("distribution identity", () => {
 
   test("uses an explicit package inventory", () => {
     expect(package_.files).toEqual([
+      "DISCLOSURE",
       "LICENSE",
       "README.md",
       "VERSION",
@@ -43,7 +45,9 @@ describe("distribution identity", () => {
       "skills/ensoul/scripts/*.ts",
       "skills/ensoul/SKILL.md",
     ]);
-    expect(EXPECTED_PATHS.size).toBe(17);
+    expect(EXPECTED_PATHS.size).toBe(18);
+    expect(readFileSync(join(ROOT, "DISCLOSURE"), "utf8"))
+      .toContain("Ensoul dual-use disclosure");
   });
 
   test("publishes exactly one marketplace skill", async () => {
@@ -106,6 +110,19 @@ describe("delivery policy", () => {
     expect(workflow).toContain('npm stage publish "$tarball"');
     expect(workflow).not.toContain("NODE_AUTH_TOKEN");
     expect(workflow).not.toContain("npm publish ");
+  });
+
+  test("builds an exact candidate artifact without staging by default", () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
+    expect(workflow).toContain("publish_to_npm:");
+    expect(workflow).toContain("description: Submit the verified artifact to npm staging");
+    expect(workflow).toContain("default: false");
+    expect(workflow).toContain("if: ${{ inputs.publish_to_npm }}");
+    expect(workflow).toContain("environment: npm-stage");
+    const artifactUpload = workflow.indexOf("actions/upload-artifact@v6");
+    const stageGuard = workflow.indexOf("if: ${{ inputs.publish_to_npm }}");
+    expect(artifactUpload).toBeGreaterThanOrEqual(0);
+    expect(stageGuard).toBeGreaterThan(artifactUpload);
   });
 
   test("verifies public npm bytes before immutable release publication", () => {
