@@ -141,7 +141,7 @@ jobs:
           retention-days: 30
 
   stage:
-    name: Stage exact package
+    name: Stage exact package v${{ needs.verify.outputs.package_version }}
     if: inputs.publish_to_npm == true
     needs: verify
     environment:
@@ -252,6 +252,122 @@ jobs:
           package-manager-cache: false
       - name: Pin npm
         run: npm install --global npm@11.19.0 --ignore-scripts --registry=https://registry.npmjs.org
+      - name: Reject another pending stable stage
+        env:
+          EXPECTED_VERSION: ${{ needs.verify.outputs.package_version }}
+          EXPECTED_WORKFLOW_ID: "345387949"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { spawnSync } = require("node:child_process");
+          const expectedName = "@hraness/ensoul";
+          const expectedVersion = process.env.EXPECTED_VERSION ?? "";
+          const workflowId = process.env.EXPECTED_WORKFLOW_ID ?? "";
+          const repository = process.env.GITHUB_REPOSITORY ?? "";
+          const currentRunId = process.env.GITHUB_RUN_ID ?? "";
+          const maximum = BigInt(Number.MAX_SAFE_INTEGER);
+          const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+          const parseVersion = (value, label) => {
+            const match = versionPattern.exec(value);
+            if (match === null) throw new Error(`${label} is not a stable semantic version`);
+            const parts = match.slice(1).map(BigInt);
+            if (parts.some(part => part > maximum)) {
+              throw new Error(`${label} exceeds Number.MAX_SAFE_INTEGER`);
+            }
+            return parts;
+          };
+          const compare = (left, right) => {
+            for (let index = 0; index < 3; index += 1) {
+              if (left[index] !== right[index]) return left[index] > right[index] ? 1 : -1;
+            }
+            return 0;
+          };
+          const execute = (command, args, label) => {
+            const result = spawnSync(command, args, {
+              encoding: "utf8",
+              maxBuffer: 10 * 1024 * 1024,
+            });
+            if (result.status !== 0 || result.error) throw new Error(`Could not read ${label}`);
+            return result.stdout;
+          };
+          if (
+            !/^[1-9][0-9]*$/u.test(workflowId)
+            || !/^[1-9][0-9]*$/u.test(currentRunId)
+            || repository !== "hraness/ensoul"
+          ) throw new Error("Stable-stage history identity is invalid");
+          const candidate = parseVersion(expectedVersion, "Candidate version");
+          const latestValue = JSON.parse(execute("npm", [
+            "view",
+            expectedName,
+            "dist-tags.latest",
+            "--json",
+            "--registry=https://registry.npmjs.org",
+          ], "npm latest"));
+          if (typeof latestValue !== "string") throw new Error("npm latest is not a version string");
+          const latest = parseVersion(latestValue, "npm latest");
+          if (compare(candidate, latest) <= 0) {
+            throw new Error(`Candidate ${expectedVersion} must be newer than npm latest ${latestValue}`);
+          }
+          const runsPayload = JSON.parse(execute("gh", [
+            "api",
+            "--method", "GET",
+            `/repos/${repository}/actions/workflows/${workflowId}/runs?event=workflow_dispatch&status=completed&branch=main&per_page=100`,
+          ], "completed npm-stage workflow runs"));
+          if (
+            !runsPayload
+            || typeof runsPayload !== "object"
+            || !Number.isSafeInteger(runsPayload.total_count)
+            || runsPayload.total_count < 0
+            || runsPayload.total_count > 100
+            || !Array.isArray(runsPayload.workflow_runs)
+            || runsPayload.workflow_runs.length !== runsPayload.total_count
+          ) throw new Error("Completed npm-stage history exceeds the reviewed 100-run bound");
+          for (const run of runsPayload.workflow_runs) {
+            if (
+              !run
+              || typeof run !== "object"
+              || !Number.isSafeInteger(run.id)
+              || run.id <= 0
+              || String(run.id) === currentRunId
+              || run.workflow_id !== Number(workflowId)
+              || run.event !== "workflow_dispatch"
+              || run.head_branch !== "main"
+              || run.status !== "completed"
+            ) throw new Error("Completed npm-stage history contains an invalid run");
+            const jobsPayload = JSON.parse(execute("gh", [
+              "api",
+              "--method", "GET",
+              `/repos/${repository}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+            ], `jobs for npm-stage run ${run.id}`));
+            if (
+              !jobsPayload
+              || typeof jobsPayload !== "object"
+              || !Number.isSafeInteger(jobsPayload.total_count)
+              || jobsPayload.total_count < 0
+              || jobsPayload.total_count > 100
+              || !Array.isArray(jobsPayload.jobs)
+              || jobsPayload.jobs.length !== jobsPayload.total_count
+            ) throw new Error(`npm-stage run ${run.id} exceeds the reviewed 100-job bound`);
+            for (const job of jobsPayload.jobs) {
+              if (!job || typeof job !== "object" || typeof job.name !== "string") {
+                throw new Error(`npm-stage run ${run.id} contains an invalid job`);
+              }
+              if (job.conclusion !== "success" || !job.name.startsWith("Stage exact package")) continue;
+              const match = /^Stage exact package v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/u.exec(job.name);
+              if (match === null) {
+                throw new Error(`Successful npm-stage run ${run.id} lacks a version-bound stage job`);
+              }
+              const stagedVersion = match[1];
+              const staged = parseVersion(stagedVersion, `Staged version from run ${run.id}`);
+              if (compare(staged, latest) > 0) {
+                throw new Error(
+                  `Refusing to stage ${expectedVersion}: run ${run.id} already staged pending ${stagedVersion}`,
+                );
+              }
+            }
+          }
+          NODE
       - name: Bind artifact reference
         env:
           ARTIFACT_NAME: ${{ needs.verify.outputs.artifact_name }}
@@ -381,6 +497,7 @@ jobs:
             if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Packed manifest has an unsafe ${label}`);
             return value;
           };
+          const ustarSignature = Buffer.from([0x75, 0x73, 0x74, 0x61, 0x72, 0x00, 0x30, 0x30]);
           let offset = 0;
           let zeroBlocks = 0;
           let entryCount = 0;
@@ -403,7 +520,7 @@ jobs:
             for (let index = 0; index < header.length; index += 1) {
               checksum += index >= 148 && index < 156 ? 0x20 : header[index];
             }
-            if (checksum !== expectedChecksum || tarText(header, 257, 6) !== "ustar") {
+            if (checksum !== expectedChecksum || !header.subarray(257, 265).equals(ustarSignature)) {
               throw new Error("Packed manifest tar header is invalid");
             }
             const name = tarText(header, 0, 100);
@@ -439,6 +556,7 @@ jobs:
             || manifest?.version !== expectedVersion
             || manifest?.private !== false
             || manifest?.contentPolicy?.class !== "dual-use"
+            || Object.hasOwn(manifest, "tag")
             || publishConfig === null
             || typeof publishConfig !== "object"
             || Array.isArray(publishConfig)
@@ -500,9 +618,43 @@ jobs:
             echo "::error::Could not prove that tag v$EXPECTED_VERSION is absent"
             exit 1
           fi
-          npm stage publish "$TARBALL" \
+          npm_user_config="$RUNNER_TEMP/ensoul-empty-user.npmrc"
+          npm_global_config="$RUNNER_TEMP/ensoul-empty-global.npmrc"
+          : > "$npm_user_config"
+          : > "$npm_global_config"
+          chmod 600 "$npm_user_config" "$npm_global_config"
+          unset NPM_CONFIG_TAG npm_config_tag
+          configured_tag="$(NPM_CONFIG_USERCONFIG="$npm_user_config" \
+            NPM_CONFIG_GLOBALCONFIG="$npm_global_config" npm config get tag)"
+          if [[ "$configured_tag" != latest ]]; then
+            echo "::error::Pinned npm's clean default dist-tag is $configured_tag, expected latest"
+            exit 1
+          fi
+          latest_before_stage="$(NPM_CONFIG_USERCONFIG="$npm_user_config" \
+            NPM_CONFIG_GLOBALCONFIG="$npm_global_config" npm view "@hraness/ensoul" dist-tags.latest \
+            --json --registry=https://registry.npmjs.org)"
+          LATEST_VERSION_JSON="$latest_before_stage" EXPECTED_VERSION="$EXPECTED_VERSION" node <<'NODE'
+          const pattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+          const maximum = BigInt(Number.MAX_SAFE_INTEGER);
+          const parse = (value, label) => {
+            const match = pattern.exec(value);
+            if (match === null) throw new Error(`${label} is not a stable semantic version`);
+            const parts = match.slice(1).map(BigInt);
+            if (parts.some(part => part > maximum)) throw new Error(`${label} exceeds Number.MAX_SAFE_INTEGER`);
+            return parts;
+          };
+          const latestValue = JSON.parse(process.env.LATEST_VERSION_JSON ?? "null");
+          if (typeof latestValue !== "string") throw new Error("npm latest is not a version string");
+          const latest = parse(latestValue, "npm latest");
+          const expected = parse(process.env.EXPECTED_VERSION ?? "", "Candidate version");
+          const comparison = expected.findIndex((part, index) => part !== latest[index]);
+          if (comparison < 0 || expected[comparison] < latest[comparison]) {
+            throw new Error(`Candidate ${process.env.EXPECTED_VERSION} must still be newer than npm latest ${latestValue}`);
+          }
+          NODE
+          NPM_CONFIG_USERCONFIG="$npm_user_config" \
+            NPM_CONFIG_GLOBALCONFIG="$npm_global_config" npm stage publish "$TARBALL" \
             --access public \
             --ignore-scripts \
             --provenance \
-            --tag latest \
             --registry=https://registry.npmjs.org

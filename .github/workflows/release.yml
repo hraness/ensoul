@@ -438,21 +438,70 @@ jobs:
             echo "::error::Publish request does not match the verified tag"
             exit 1
           fi
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          release_title="Ensoul $VERIFIED_TAG"
+          release_body="$(printf '%s\n\n%s\n%s\n%s\n' \
+            'Automated immutable Ensoul release.' \
+            "Source: $VERIFIED_SOURCE_SHA" \
+            "Workflow: .github/workflows/release.yml" \
+            "Run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          verify_exact_release() {
+            RELEASE_JSON="$1" \
+              EXPECTED_BODY="$release_body" \
+              EXPECTED_SOURCE_SHA="$VERIFIED_SOURCE_SHA" \
+              EXPECTED_TAG="$VERIFIED_TAG" \
+              EXPECTED_TITLE="$release_title" node <<'NODE'
+          const { readFileSync } = require("node:fs");
+          const release = JSON.parse(readFileSync(process.env.RELEASE_JSON, "utf8"));
+          if (
+            !Number.isSafeInteger(release?.id)
+            || release.id < 1
+            || release.tag_name !== process.env.EXPECTED_TAG
+            || release.name !== process.env.EXPECTED_TITLE
+            || release.body !== process.env.EXPECTED_BODY
+            || release.draft !== false
+            || release.prerelease !== false
+            || release.immutable !== true
+            || !Array.isArray(release.assets)
+            || release.assets.length !== 0
+            || release.author?.id !== 41898282
+            || release.author?.login !== "github-actions[bot]"
+            || release.author?.type !== "Bot"
+            || !process.env.EXPECTED_BODY?.includes(`Source: ${process.env.EXPECTED_SOURCE_SHA}`)
+          ) throw new Error("Existing GitHub Release is not the exact immutable Actions-authored release for this run and source");
+          NODE
+          }
+          release_json="$(mktemp "$RUNNER_TEMP/ensoul-release-record.XXXXXX")"
+          release_error="$(mktemp "$RUNNER_TEMP/ensoul-release-lookup-error.XXXXXX")"
+          trap 'rm -f "$release_json" "$release_error"' EXIT
+          set +e
+          gh api --method GET \
+            "/repos/$GITHUB_REPOSITORY/releases/tags/$VERIFIED_TAG" \
+            > "$release_json" 2> "$release_error"
+          release_lookup_status=$?
+          set -e
+          if [[ $release_lookup_status -eq 0 ]]; then
+            verify_exact_release "$release_json"
+          elif grep -Eq '\(HTTP 404\)$' "$release_error"; then
+            latest_before_release="$(npm view "@hraness/ensoul" dist-tags.latest \
+              --json --registry=https://registry.npmjs.org)"
+            if [[ "$latest_before_release" != "\"${VERIFIED_TAG#v}\"" ]]; then
+              echo "::error::npm latest advanced before release mutation: $latest_before_release"
+              exit 1
+            fi
             gh release create "$GITHUB_REF_NAME" \
               --verify-tag \
-              --generate-notes \
               --latest \
-              --title "Ensoul $GITHUB_REF_NAME"
-          fi
-          release_state="$(gh release view "$GITHUB_REF_NAME" \
-            --json assets,isDraft,isImmutable,isPrerelease,tagName \
-            --jq '[.tagName, .isDraft, .isPrerelease, .isImmutable, (.assets | length)] | @tsv')"
-          expected_state="$GITHUB_REF_NAME"$'\tfalse\tfalse\ttrue\t0'
-          if [[ "$release_state" != "$expected_state" ]]; then
-            echo "::error::Release $GITHUB_REF_NAME is not published and immutable"
+              --title "$release_title" \
+              --notes "$release_body"
+          else
+            cat "$release_error"
+            echo "::error::Could not prove whether $VERIFIED_TAG already has a GitHub Release"
             exit 1
           fi
+          gh api --method GET \
+            "/repos/$GITHUB_REPOSITORY/releases/tags/$VERIFIED_TAG" \
+            > "$release_json"
+          verify_exact_release "$release_json"
           latest_tag="$(gh api "/repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')"
           if [[ "$latest_tag" != "$GITHUB_REF_NAME" ]]; then
             echo "::error::Latest release is $latest_tag, expected $GITHUB_REF_NAME"

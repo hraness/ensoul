@@ -11,6 +11,7 @@ const ROOT = resolve(import.meta.dir, "..");
 const MAXIMUM_FILES = 32;
 const MAXIMUM_PACKED_BYTES = 512 * 1024;
 const MAXIMUM_UNPACKED_BYTES = 2 * 1024 * 1024;
+const USTAR_SIGNATURE = Buffer.from([0x75, 0x73, 0x74, 0x61, 0x72, 0x00, 0x30, 0x30]);
 
 export const EXPECTED_PATHS = new Set([
   "DISCLOSURE",
@@ -54,6 +55,22 @@ function fail(message: string): never {
 
 function equalSets<T>(left: ReadonlySet<T>, right: ReadonlySet<T>): boolean {
   return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
+export function verifyNpmPublishManifest(manifest: Readonly<Record<string, unknown>>): void {
+  if (Object.hasOwn(manifest, "tag")) {
+    fail("package.json must not contain a top-level tag because npm lets it override the requested dist-tag");
+  }
+  const publishConfig = manifest.publishConfig;
+  if (publishConfig === null || typeof publishConfig !== "object" || Array.isArray(publishConfig)) {
+    fail("packed package.json publishConfig must be an exact object");
+  }
+  const publishConfigRecord = publishConfig as Record<string, unknown>;
+  if (
+    JSON.stringify(Object.keys(publishConfigRecord).sort()) !== JSON.stringify(["access", "registry"])
+    || publishConfigRecord.access !== "public"
+    || publishConfigRecord.registry !== "https://registry.npmjs.org"
+  ) fail("packed package.json publishConfig may contain only the canonical public npm registry policy");
 }
 
 function safeRelativePath(path: string): boolean {
@@ -110,8 +127,9 @@ export function readTarGzip(archiveBytes: Uint8Array): readonly TarEntry[] {
     if (zeroBlocks !== 0) fail("npm archive has an invalid tar terminator");
     const expectedChecksum = tarOctal(header, 148, 8, "tar checksum");
     if (expectedChecksum !== tarChecksum(header)) fail("npm archive has an invalid tar checksum");
-    const magic = tarText(header, 257, 6);
-    if (magic !== "ustar") fail("npm archive is not a supported USTAR archive");
+    if (!header.subarray(257, 265).equals(USTAR_SIGNATURE)) {
+      fail("npm archive is not a supported POSIX USTAR archive");
+    }
     const name = tarText(header, 0, 100);
     const prefix = tarText(header, 345, 155);
     const fullName = prefix === "" ? name : `${prefix}/${name}`;
@@ -209,17 +227,9 @@ export function verifyArchive(archivePath: string, record: PackRecord): string {
     if (path === "package.json") {
       const packaged = JSON.parse(entry.bytes.toString("utf8")) as Record<string, unknown>;
       const source = JSON.parse(readFileSync(join(ROOT, path), "utf8")) as Record<string, unknown>;
+      verifyNpmPublishManifest(source);
       if (JSON.stringify(packaged) !== JSON.stringify(source)) fail("packed package.json differs from source metadata");
-      const publishConfig = packaged.publishConfig;
-      if (publishConfig === null || typeof publishConfig !== "object" || Array.isArray(publishConfig)) {
-        fail("packed package.json publishConfig must be an exact object");
-      }
-      const publishConfigRecord = publishConfig as Record<string, unknown>;
-      if (
-        JSON.stringify(Object.keys(publishConfigRecord).sort()) !== JSON.stringify(["access", "registry"])
-        || publishConfigRecord.access !== "public"
-        || publishConfigRecord.registry !== "https://registry.npmjs.org"
-      ) fail("packed package.json publishConfig may contain only the canonical public npm registry policy");
+      verifyNpmPublishManifest(packaged);
     } else if (!entry.bytes.equals(readFileSync(join(ROOT, path)))) {
       fail(`npm archive bytes differ from source: ${path}`);
     }
