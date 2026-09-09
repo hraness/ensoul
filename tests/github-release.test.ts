@@ -111,7 +111,16 @@ if(args[0]==='attestation'){
   output(f.verified);
 }else if(args[0]==='api'){
   const endpoint=args.find(a=>a.startsWith('/repos/hraness/ensoul'));
-  if(endpoint.endsWith('/releases/tags/v0.3.3')){if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');if(!fs.existsSync(state))fail('gh: Not Found (HTTP 404)');output(read());}
+  if(endpoint.endsWith('/releases/tags/v0.3.3')){if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');if(!fs.existsSync(state)||read().draft)fail('gh: Not Found (HTTP 404)');output(read());}
+  else if(endpoint.includes('/releases?per_page=100&page=')){
+    if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');
+    const page=Number(endpoint.split('page=').at(-1));
+    const current=fs.existsSync(state)?read():null;
+    if(process.env.MOCK_DUPLICATE_DRAFT==='true'&&current)output([current,{...current,id:current.id+1}]);
+    else if(process.env.MOCK_RELEASE_PAGE==='2'&&page===1)output(Array.from({length:100},(_,i)=>({id:1000+i,tag_name:'unrelated-'+i})));
+    else output(current?[current]:[]);
+  }
+  else if(endpoint==='/repos/hraness/ensoul/releases/77'){const release=read();output(process.env.MOCK_RELEASE_ID_DRIFT==='true'?{...release,id:78}:release);}
   else if(endpoint.endsWith('/releases/latest'))output(fs.existsSync(state)&&read().draft===false?read():{id:66,tag_name:process.env.MOCK_LATEST||'v0.3.2',draft:false,prerelease:false,immutable:true});
   else if(endpoint.includes('/releases/assets/')){const id=Number(endpoint.split('/').at(-1));const a=read().assets.find(a=>a.id===id);process.stdout.write(fs.readFileSync(path.join(root,'assets',a.name)));}
   else if(endpoint.endsWith('/attempts/1'))output(f.attempt);
@@ -173,6 +182,24 @@ describe("canonical publication provider boundary",()=>{
   for(const [name,flag] of [["provider lookup denial","MOCK_LOOKUP_403"],["unverified provenance","MOCK_PROVENANCE_FAILURE"],["moved tag","MOCK_MOVED_TAG"],["current helper drift","MOCK_CONTROL_DRIFT"]]) test(`does not publish after ${name}`,()=>{
     const f=fixture();try {
       const mock=installProviderMock(f);const result=mock.run({[flag!]:"true"});expect(result.exitCode).not.toBe(0);
+      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+    } finally {f.cleanup();}
+  });
+  test("discovers a matching draft on a later page and retains its provider ID",()=>{
+    const f=fixture();try {
+      const mock=installProviderMock(f);
+      writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:f.release.assets}));
+      const result=mock.run({MOCK_RELEASE_PAGE:"2"});
+      expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
+      expect(mock.calls().filter(c=>c[0]==="release").map(c=>c[1])).toEqual(["edit"]);
+      expect(mock.calls().some(c=>c.some(a=>a.endsWith("page=2")))).toBe(true);
+    } finally {f.cleanup();}
+  });
+  for(const flag of ["MOCK_DUPLICATE_DRAFT","MOCK_RELEASE_ID_DRIFT"])test(`rejects ambiguous draft discovery: ${flag}`,()=>{
+    const f=fixture();try {
+      const mock=installProviderMock(f);
+      writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:[]}));
+      expect(mock.run({[flag]:"true"}).exitCode).not.toBe(0);
       expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
     } finally {f.cleanup();}
   });

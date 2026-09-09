@@ -102,6 +102,29 @@ function optionalRelease(path: string): Json | undefined {
     throw error;
   }
 }
+// Drafts are omitted by GET /releases/tags/{tag}; enumerate authenticated
+// releases before creating one, then retain its immutable provider ID.
+function findRelease(tag: string): Json | undefined {
+  const seen = new Set<number>(); const matches: Json[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const entries = JSON.parse(gh(["api", "--method", "GET", `/repos/${REPOSITORY}/releases?per_page=100&page=${page}`]));
+    requireThat(Array.isArray(entries) && entries.length <= 100, "Invalid releases page");
+    for (const value of entries) {
+      const entry = object(value);
+      requireThat(positive(entry.id) && !seen.has(entry.id) && typeof entry.tag_name === "string", "Ambiguous release enumeration");
+      seen.add(entry.id);
+      if (entry.tag_name === tag) matches.push(entry);
+    }
+    requireThat(matches.length <= 1, "Multiple releases identify this tag");
+    if (entries.length < 100) {
+      if (!matches.length) return undefined;
+      const release = api(`/releases/${matches[0]!.id}`);
+      requireThat(release.id === matches[0]!.id && release.tag_name === tag, "Release identity changed during discovery");
+      return release;
+    }
+  }
+  throw new Error("Release enumeration exceeded its bound");
+}
 export function verifyAttestationResult(value: unknown, m: Manifest, subjects: Record<string, string>): void {
   requireThat(Array.isArray(value) && value.length === 1, "Expected one verified provenance statement");
   const result = object(object(value[0]).verificationResult);
@@ -189,10 +212,11 @@ function verifyRemoteBytes(release: Json, directory: string): void {
 }
 function publish(directory: string): void {
   const m = verifyFiles(directory); bindExpectedFiles(directory, m); verifyProvenance(directory, m); controls(m);
-  let release = optionalRelease(`/releases/tags/${m.tag}`);
+  let release = findRelease(m.tag);
   if (!release) {
     gh(["release", "create", m.tag, "--repo", REPOSITORY, "--verify-tag", "--draft", "--target", m.sourceSha, "--title", `Ensoul ${m.tag}`, "--notes", releaseBody(m)]);
-    release = api(`/releases/tags/${m.tag}`);
+    release = findRelease(m.tag);
+    requireThat(release, "Created draft is absent from authenticated releases");
   }
   verifyReleaseRecord(release, m, directory, true); verifyRemoteBytes(release, directory);
   if (release.draft) {
@@ -200,13 +224,13 @@ function publish(directory: string): void {
       controls(m);
       gh(["release", "upload", m.tag, join(directory, name), "--repo", REPOSITORY]);
     }
-    release = api(`/releases/tags/${m.tag}`);
+    release = api(`/releases/${release.id}`);
     verifyReleaseRecord(release, m, directory, true);
     requireThat(release.assets.length === 5, "Draft is missing release assets");
     verifyRemoteBytes(release, directory); controls(m);
     gh(["release", "edit", m.tag, "--repo", REPOSITORY, "--draft=false", "--latest"]);
   }
-  const published = api(`/releases/tags/${m.tag}`);
+  const published = api(`/releases/${release.id}`);
   verifyReleaseRecord(published, m, directory, false); verifyRemoteBytes(published, directory);
   requireThat(api("/releases/latest").id === published.id, "Canonical latest readback differs");
   process.stdout.write(`Published ${m.tag} from ${m.sourceSha} with five verified assets\n`);

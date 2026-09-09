@@ -64,10 +64,10 @@ Use $ensoul to build a dated working model of <person> from these authorized sou
 
 ### Immutable package artifact
 
-GitHub Releases are the canonical distribution. Versions starting with `v0.3.3` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Once that version appears in [Releases](https://github.com/hraness/ensoul/releases), install its exact archive:
+GitHub Releases are the canonical distribution. Versions starting with `v0.3.4` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Once that version appears in [Releases](https://github.com/hraness/ensoul/releases), install its exact archive:
 
 ```sh
-bun add --exact https://github.com/hraness/ensoul/releases/download/v0.3.3/hraness-ensoul-0.3.3.tgz
+bun add --exact https://github.com/hraness/ensoul/releases/download/v0.3.4/hraness-ensoul-0.3.4.tgz
 ```
 
 The same URL works with `npm install`. Use a versioned URL to keep installations reproducible. The package is inert on installation, has no dependencies or lifecycle scripts, and carries the complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/`.
