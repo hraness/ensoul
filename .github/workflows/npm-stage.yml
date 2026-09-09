@@ -1,8 +1,13 @@
-name: Build or stage npm package
+name: Mirror canonical package to npm staging
 
 on:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: Exact canonical GitHub version to mirror; empty selects Latest
+        required: false
+        default: ""
+        type: string
       publish_to_npm:
         description: Submit the verified artifact to npm staging
         required: true
@@ -23,20 +28,29 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify exact package
+    name: Verify canonical package for npm
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
       artifact_name: ${{ steps.pack.outputs.artifact_name }}
       package_version: ${{ steps.identity.outputs.version }}
       source_sha: ${{ steps.identity.outputs.source_sha }}
+      workflow_sha: ${{ steps.identity.outputs.workflow_sha }}
       tarball_name: ${{ steps.pack.outputs.tarball_name }}
       tarball_sha256: ${{ steps.pack.outputs.tarball_sha256 }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fetch-depth: 0
+          fetch-depth: 1
+          fetch-tags: false
           persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Fetch governed main history
+        run: git fetch --no-tags --unshallow origin refs/heads/main:refs/remotes/origin/main
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: "1.3.14"
@@ -52,6 +66,8 @@ jobs:
         id: identity
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
@@ -59,23 +75,34 @@ jobs:
             exit 1
           fi
           git fetch --no-tags origin "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
-          source_sha="$(git rev-parse "origin/$DEFAULT_BRANCH")"
-          if [[ "$GITHUB_SHA" != "$source_sha" || "$(git rev-parse HEAD)" != "$source_sha" ]]; then
+          workflow_sha="$(git rev-parse "origin/$DEFAULT_BRANCH")"
+          if [[ "$GITHUB_SHA" != "$workflow_sha" || "$(git rev-parse HEAD)" != "$workflow_sha" ]]; then
             echo "::error::npm staging must run from current $DEFAULT_BRANCH head"
             exit 1
           fi
-          package_name="$(bun -e 'console.log((await Bun.file("./package.json").json()).name)')"
-          package_version="$(bun -e 'console.log((await Bun.file("./package.json").json()).version)')"
+          selected_tag="$RELEASE_TAG"
+          if [[ -z "$selected_tag" ]]; then
+            selected_tag="$(gh api --method GET "/repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          fi
+          [[ "$selected_tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          package_name="@hraness/ensoul"
+          package_version="${selected_tag#v}"
+          source_sha="$(gh api --method GET "/repos/$GITHUB_REPOSITORY/commits/$selected_tag" --jq .sha)"
+          [[ "$source_sha" =~ ^[a-f0-9]{40}$ ]]
+          git fetch --no-tags origin "refs/tags/$selected_tag:refs/ensoul-mirror-tags/$selected_tag"
+          [[ "$(git cat-file -t "refs/ensoul-mirror-tags/$selected_tag")" == tag ]]
+          [[ "$(git rev-parse "refs/ensoul-mirror-tags/$selected_tag^{commit}")" == "$source_sha" ]]
+          git merge-base --is-ancestor "$source_sha" "$workflow_sha"
+          source_directory="$RUNNER_TEMP/ensoul-canonical-source"
+          git worktree add --detach "$source_directory" "$source_sha"
+          test "$(node -p 'require(process.argv[1]).version' "$source_directory/package.json")" = "$package_version"
+          test "$(node -p 'require(process.argv[1]).name' "$source_directory/package.json")" = "$package_name"
           if [[ "$package_name" != "@hraness/ensoul" ]]; then
             echo "::error::Unexpected package name $package_name"
             exit 1
           fi
           if [[ ! "$package_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error::Package version is not stable semantic version"
-            exit 1
-          fi
-          if git rev-parse --verify --quiet "refs/tags/v$package_version" >/dev/null; then
-            echo "::error::Create v$package_version only after npm publication is verified"
             exit 1
           fi
           npm view "$package_name" name --json --registry=https://registry.npmjs.org >/dev/null
@@ -110,32 +137,45 @@ jobs:
             throw new Error(`Candidate ${process.env.NEW_VERSION} must be newer than npm latest ${latest}`);
           }
           NODE
-          printf 'source_sha=%s\nversion=%s\n' "$source_sha" "$package_version" >> "$GITHUB_OUTPUT"
+          printf 'source_sha=%s\nworkflow_sha=%s\nversion=%s\n' "$source_sha" "$workflow_sha" "$package_version" >> "$GITHUB_OUTPUT"
+      - run: bun install --frozen-lockfile
+        working-directory: ${{ runner.temp }}/ensoul-canonical-source
       - run: bun run typecheck
+        working-directory: ${{ runner.temp }}/ensoul-canonical-source
       - run: bun run test
+        working-directory: ${{ runner.temp }}/ensoul-canonical-source
       - run: bun run check:runtime-policy
+        working-directory: ${{ runner.temp }}/ensoul-canonical-source
       - run: bun run check:schema
+        working-directory: ${{ runner.temp }}/ensoul-canonical-source
       - name: Pack and smoke exact artifact
         id: pack
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_VERSION: ${{ steps.identity.outputs.version }}
+          EXPECTED_SOURCE_SHA: ${{ steps.identity.outputs.source_sha }}
+          EXPECTED_WORKFLOW_SHA: ${{ steps.identity.outputs.workflow_sha }}
         run: |
           set -euo pipefail
+          canonical_directory="$RUNNER_TEMP/ensoul-canonical-release"
+          node scripts/github-release.ts mirror "$canonical_directory"
           artifact_directory="$RUNNER_TEMP/ensoul-npm-package"
           pack_json="$artifact_directory/npm-pack.json"
           sha256_file="$artifact_directory/npm-package.sha256"
           mkdir -p "$artifact_directory"
-          npm pack \
-            --ignore-scripts \
-            --json \
-            --pack-destination "$artifact_directory" \
-            --registry=https://registry.npmjs.org > "$pack_json"
-          tarball_name="$(bun -e 'console.log((await Bun.file(process.argv.at(-1)).json())[0].filename)' "$pack_json")"
+          tarball_name="hraness-ensoul-$EXPECTED_VERSION.tgz"
+          cp "$canonical_directory/$tarball_name" "$artifact_directory/$tarball_name"
+          cp "$canonical_directory/npm-pack.json" "$pack_json"
           tarball="$artifact_directory/$tarball_name"
-          bun scripts/package-smoke.ts --archive "$tarball" --pack-json "$pack_json"
+          current_smoke="$RUNNER_TEMP/ensoul-canonical-source/scripts/.current-package-smoke.ts"
+          git show "$EXPECTED_WORKFLOW_SHA:scripts/package-smoke.ts" > "$current_smoke"
+          test "$(git hash-object "$current_smoke")" = "$(git rev-parse "$EXPECTED_WORKFLOW_SHA:scripts/package-smoke.ts")"
+          bun --no-env-file --config=/dev/null run "$current_smoke" --archive "$tarball" --pack-json "$pack_json"
           tarball_sha256="$(sha256sum "$tarball" | awk '{ print $1 }')"
           metadata_sha256="$(sha256sum "$pack_json" | awk '{ print $1 }')"
           printf '%s  %s\n%s  npm-pack.json\n' \
             "$tarball_sha256" "$tarball_name" "$metadata_sha256" > "$sha256_file"
-          artifact_name="npm-package-${{ steps.identity.outputs.version }}-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          artifact_name="npm-package-${{ steps.identity.outputs.version }}-$EXPECTED_SOURCE_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           printf 'artifact_name=%s\ntarball_name=%s\ntarball_sha256=%s\n' \
             "$artifact_name" "$tarball_name" "$tarball_sha256" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -153,6 +193,7 @@ jobs:
       name: npm-stage
     permissions:
       actions: read
+      contents: read
       id-token: write
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -163,7 +204,7 @@ jobs:
           EXPECTED_REPOSITORY: "hraness/ensoul"
           EXPECTED_REPOSITORY_ID: "1350294135"
           EXPECTED_WORKFLOW_ID: "345387949"
-          EXPECTED_WORKFLOW_NAME: "Build or stage npm package"
+          EXPECTED_WORKFLOW_NAME: "Mirror canonical package to npm staging"
           EXPECTED_WORKFLOW_PATH: ".github/workflows/npm-stage.yml"
           GH_TOKEN: ${{ github.token }}
           INPUT_PUBLISH_TO_NPM: ${{ inputs.publish_to_npm }}
@@ -777,6 +818,8 @@ jobs:
           echo "Reserved the exclusive retained-history intent for @hraness/ensoul@$EXPECTED_VERSION"
       - name: Revalidate current main and submit exact package to npm staging
         env:
+          EXPECTED_WORKFLOW_SHA: ${{ needs.verify.outputs.workflow_sha }}
+          GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EXPECTED_ARCHIVE_SHA256: ${{ steps.artifact.outputs.archive_sha256 }}
           EXPECTED_METADATA_SHA256: ${{ steps.artifact.outputs.metadata_sha256 }}
@@ -793,7 +836,7 @@ jobs:
             "refs/heads/$DEFAULT_BRANCH"
           current_default_sha="$(git --git-dir="$current_main" rev-parse FETCH_HEAD)"
           if [[ "$GITHUB_REF" != "refs/heads/$DEFAULT_BRANCH" || \
-                "$GITHUB_SHA" != "$EXPECTED_SOURCE_SHA" || \
+                "$GITHUB_SHA" != "$EXPECTED_WORKFLOW_SHA" || \
                 "$GITHUB_SHA" != "$current_default_sha" ]]; then
             echo "::error::Default branch advanced after verification; rerun this workflow"
             exit 1
@@ -805,20 +848,25 @@ jobs:
             echo "::error::Downloaded package changed after current-main verification"
             exit 1
           fi
-          tag_ref="refs/tags/v$EXPECTED_VERSION"
-          set +e
-          tag_lookup_output="$(git ls-remote --exit-code --refs \
-            "https://github.com/$GITHUB_REPOSITORY.git" "$tag_ref")"
-          tag_lookup_status=$?
-          set -e
-          if [[ $tag_lookup_status -eq 0 || -n "$tag_lookup_output" ]]; then
-            echo "::error::Tag v$EXPECTED_VERSION exists; npm delivery must precede the Git tag"
-            exit 1
-          fi
-          if [[ $tag_lookup_status -ne 2 ]]; then
-            echo "::error::Could not prove that tag v$EXPECTED_VERSION is absent"
-            exit 1
-          fi
+          node <<'NODE'
+          const {execFileSync} = require('node:child_process');
+          const read = path => JSON.parse(execFileSync('gh', ['api', '--method', 'GET', `/repos/hraness/ensoul${path}`], {encoding:'utf8'}));
+          const comparison = read(`/compare/${process.env.EXPECTED_SOURCE_SHA}...${process.env.EXPECTED_WORKFLOW_SHA}`);
+          if (comparison.status !== 'ahead' && comparison.status !== 'identical') throw new Error('Canonical source is not on current main');
+          const tag = `v${process.env.EXPECTED_VERSION}`;
+          const release = read(`/releases/tags/${tag}`);
+          if (release.tag_name !== tag || release.draft !== false || release.prerelease !== false || release.immutable !== true || release.author?.id !== 41898282 || release.author?.type !== 'Bot' || release.target_commitish !== process.env.EXPECTED_SOURCE_SHA || !Array.isArray(release.assets) || release.assets.length !== 5) throw new Error('Canonical immutable release is required before staging');
+          const expected = [`hraness-ensoul-${process.env.EXPECTED_VERSION}.tgz`, 'npm-pack.json', 'release-manifest.json', 'SHA256SUMS', 'provenance.jsonl'];
+          if (JSON.stringify(release.assets.map(a => a.name).sort()) !== JSON.stringify([...expected].sort())) throw new Error('Canonical asset set differs');
+          for (const [name, digest] of [[expected[0], process.env.EXPECTED_ARCHIVE_SHA256], ['npm-pack.json', process.env.EXPECTED_METADATA_SHA256]]) {
+            const asset = release.assets.find(a => a.name === name);
+            if (asset.state !== 'uploaded' || asset.digest !== `sha256:${digest}`) throw new Error('Mirror bytes differ from canonical release');
+          }
+          const ref = read(`/git/ref/tags/${tag}`);
+          if (ref.object?.type !== 'tag' || !/^[a-f0-9]{40}$/.test(ref.object.sha)) throw new Error('Canonical tag is not annotated');
+          const object = read(`/git/tags/${ref.object.sha}`);
+          if (object.object?.type !== 'commit' || object.object.sha !== process.env.EXPECTED_SOURCE_SHA) throw new Error('Canonical source changed');
+          NODE
           npm_user_config="$RUNNER_TEMP/ensoul-empty-user.npmrc"
           npm_global_config="$RUNNER_TEMP/ensoul-empty-global.npmrc"
           : > "$npm_user_config"

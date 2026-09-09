@@ -1,53 +1,36 @@
-# Publish Ensoul
+# Publishing Ensoul
 
-Ensoul binds one source revision, npm package, Git tag, and immutable GitHub Release to the same stable version. Publish npm before creating the tag; the tag workflow refuses to release bytes that are not already public and identical on npm.
+Immutable GitHub Releases are canonical. Each new release carries the tested package archive and its provenance. npm is an optional downstream mirror and can lag without blocking a GitHub release or skill installation. Existing releases through `v0.3.2` have no package assets; preserve them unchanged.
 
-## Completed package bootstrap
+## Provider prerequisites
 
-`@hraness/ensoul` already exists on npm, so its one-time interactive first
-publication is historical. Do not use local `npm publish` for a later version.
-Every later package must use the checked stage-only workflow below. Never put
-an npm password, one-time code, recovery code, session cookie, or long-lived
-publishing token in the repository, a command argument, an environment
-variable, or a GitHub secret.
+For a GitHub release, authenticated provider readback must prove that immutable releases are enabled, `IMMUTABLE_RELEASES_ENABLED=true`, and the repository remains owner-only. `main` requires a pull request and the exact `check` status, zero human approvals, and no bypass actors. A creation-only tag ruleset permits immutable owner User ID `894119` to create `v*`; a separate no-bypass rule prevents updates and deletion. The workflows independently bind public repository ID `1350294135` and both original and triggering owner actors.
 
-The following provider controls are bootstrap prerequisites, not a claim about
-current live configuration. Do not stage or tag a release until an authenticated
-readback proves all of them are active: npm trusted publishing for
-`hraness/ensoul`, `.github/workflows/npm-stage.yml`, and environment `npm-stage`,
-allowing `npm stage publish` only; a GitHub environment with administrator bypass
-disabled, no reviewers or secrets, and only the selected `main` branch; and a
-`main` ruleset requiring a pull request plus the exact `check` status, zero human
-approvals, and no bypass actors. A separate creation-only ruleset must permit only
-immutable owner User ID `894119` to create `v*` tags, while a no-bypass ruleset
-prevents every actor from updating or deleting those tags. Until that readback,
-the workflow's protected-ref checks intentionally fail closed.
+The npm mirror additionally requires the trusted publisher `hraness/ensoul`, `.github/workflows/npm-stage.yml`, environment `npm-stage`, allowing staged publication only. Its environment must select only `main`, contain no reviewers or secrets, and disable administrator bypass. These npm prerequisites apply only when invoking the mirror.
 
-Zero routine pull-request approvals are intentional while Ensoul remains an
-owner-only repository: automated checks and provider path controls carry the
-routine gate. These checks do not make workflow files safe from a future
-malicious write collaborator. Before granting another person write access, add a
-provider-enforced workflow-path restriction or a required human review for
-changes to release authority, then verify that boundary through live readback.
+Before granting another person write access, add a provider-enforced release-workflow path restriction or a reviewed human approval boundary. Do not infer live provider state from these instructions or a repository variable alone.
 
-## Build agent release candidates
+## Release workflow
 
-Ensoul declares dual-use content. [npm's current dual-use policy](https://docs.npmjs.com/policies/dual-use/)
-therefore forbids direct OIDC publication and requires 2FA to be enforced when a staged
-package is promoted to public. Do not replace that provider boundary with direct trusted
-publishing, a bypass-2FA token, or a local automation token.
+1. Update `package.json` and `VERSION` together, preserve the declaration and disclosure, and pass `bun run check`, independent review, and the protected pull request checks. Merge the task-owned change.
+2. Create an annotated `v<VERSION>` tag at its exact merged source and push that protected tag. No npm publication is required.
+3. The read-only verification job runs the tagged product gates, packs once, and tests the exact archive through the existing npm/Bun installed-payload smoke. It imports hash-verified package and release helpers from current `main`; tagged release workflows must equal current-main authority.
+4. A separate job, with no product checkout or code, reauthorizes the current owner attempt and attests the archive, packing receipt, release manifest, and checksums. The handoff names bind the current run and attempt.
+5. The publisher verifies the GitHub attestation signatures, hosted runner certificate, repository, tag source, workflow, exact run/attempt, and all four subjects. It checks current-main workflow/helper closure, protected tag identity, stable version ordering and live owner authority before each mutation. It creates a draft, uploads only missing matching assets, checks provider digests and downloaded bytes, then publishes immutable Latest.
+6. Verify the live five assets and an isolated installation. Update the README's published skill pin after that version exists; the previous published pin remains usable during preparation.
 
-Agents can still build and exercise release candidates without creating an npm stage or
-interrupting a maintainer. Dispatch `npm-stage.yml` from exact current `main` with its
-default `publish_to_npm=false` input. The verify job runs the package gates and uploads the
-exact tarball plus its pack and SHA-256 receipts as a 30-day GitHub Actions artifact; the
-stage job is skipped. Give the resulting run one owner, record its exact run ID, and use
-`gh run download <run-id>` to install and smoke that candidate. Treat it as an ephemeral
-candidate, not a public npm version or release.
+The five assets are `hraness-ensoul-<VERSION>.tgz`, `npm-pack.json`, `release-manifest.json`, `SHA256SUMS`, and `provenance.jsonl`. The manifest uses `hraness-github-release-v1`, names the exact source and verification authority, and records SHA-256 and SHA-512 of the archive. Checksums provide integrity; the verified GitHub certificate provides provenance. Neither an unsigned manifest nor a checksum is sufficient authority.
 
-Collect validated candidates into a less-frequent stable train. Only when the stable
-version is ready for public npm delivery should an agent dispatch the same workflow with
-`publish_to_npm=true`, then request the one unavoidable staged-publication approval below.
+A retry never moves a tag, overwrites an asset, deletes a release, or recreates an immutable version. Matching assets in the same run/attempt draft are reused after exact verification. A conflicting record or an earlier-attempt draft fails safely and needs bounded recovery against the original attested run; rerunning does not relabel earlier provenance. Keep all evidence when a provider response is ambiguous.
+
+## Optional npm mirror
+
+Ensoul's dual-use classification review was submitted to npm on September 9, 2026. Keep the declaration and current promotion authentication while it is pending. Do not disable authentication, remove the declaration unilaterally, or replace workload identities with email codes or personal tokens.
+
+After canonical publication, dispatch `Mirror canonical package to npm staging` from exact current `main`. By default, `publish_to_npm=false` selects GitHub Latest, or the exact `release_tag` input, then verifies its canonical archive and completed owner release attempt. It retains the full source checks in an isolated checkout of that release and runs the current-main package verifier against those exact source bytes. The resulting handoff does not write to npm. The immutable source must remain an ancestor of the protected current-main workflow authority, which is rechecked before staging. This permits a delayed mirror after main advances without rebuilding its archive.
+
+Set `publish_to_npm=true` only when an npm mirror is wanted. The checkout-free OIDC job preserves the retained-intent ledger and independently checks the packed configuration, canonical release asset digests, source, and current-main authority immediately before staging. npm's interactive promotion remains applicable while required by its policy. It has no effect on GitHub availability. Direct unattended mirroring can be enabled after npm confirms eligibility and the corresponding trusted-publisher controls are verified.
+
 Keep only one pending stable stage: the workflow requires its version to be newer than
 the current public `dist-tags.latest`, records a successful version-bound Actions intent
 immediately before the terminal npm mutation step, and rejects a later dispatch while
@@ -104,28 +87,3 @@ attempt is an intentional protected-`main` dispatch. It then independently parse
 downloaded tarball and permits exactly `publishConfig.access=public` plus
 `publishConfig.registry=https://registry.npmjs.org`; a packed `tag`, scoped registry,
 proxy, authentication, or other npm configuration is rejected before OIDC publication.
-
-## Publish later versions
-
-1. Update `VERSION`, `package.json`, and version-pinned install text together; merge only after the required check passes.
-2. Dispatch `Build or stage npm package` from current `main` with `publish_to_npm=true`. The workflow proves the version is new, builds and smokes one exact artifact, and submits it through npm OIDC with provenance.
-3. Review and approve the staged package through npm's interactive stage flow.
-4. Verify the live registry artifact against current `main` with `bun scripts/package-smoke.ts`.
-5. Create and push `v<VERSION>` only after that verification. The tag workflow keeps product tests and source packaging on the exact tagged commit, but first requires the tag's `release.yml` and `npm-stage.yml` to be byte-identical to current `main`. After packing, it materializes `package-smoke.ts` and `npm-provenance-identity.ts` from that exact current-`main` commit into nonconflicting paths beside the tagged helpers, verifies their Git blob identities, and invokes them with Bun environment/config discovery disabled. Those current helpers validate both archives, compare a canonical SHA-256 digest over each sorted package member's exact path, type, mode, size, and raw bytes, and verify the pinned npm signature audit. The audit must contain no missing or invalid signatures, exactly one npm publish attestation, and exactly one SLSA v1 provenance statement bound to the registry tarball SHA-512, exact source commit, public repository and owner IDs, protected `main`, the npm-stage workflow path, manual-dispatch event, GitHub-hosted builder, and invocation attempt. The invocation is read back through GitHub and must be the completed successful owner-authorized staging attempt. This binds the installed payload without depending on gzip output, tar ordering, incidental container metadata, or an unaudited registry response.
-6. Run one normal skills CLI install for the released tag and verify the canonical skills.sh page.
-
-Repository immutable releases are a bootstrap precondition whose live state must
-be read back before use. The tag workflow checks the protected annotated tag,
-immutable owner identity, exact public repository and workflow IDs, both the
-original and attempt-specific triggering actor, current tag target, and current
-`main` reachability before its write-scoped job creates any release. The verifier
-records the exact current-`main` commit that supplied its helper code. The write job
-checks out `main`, imports its live head again, and requires the tagged release and
-npm-stage workflows still to equal that head and the recorded helper files still to
-equal it. Immediately before creation it rechecks npm `latest`, the tag target, and
-both current-main closures, and fails if `main` moved during final authorization. A
-pre-existing release is accepted only
-when its tag, title, provenance body, immutable state, empty assets, and immutable
-GitHub Actions bot identity all match the exact source and workflow run; any other
-pre-existing release fails closed. A collaborator rerun cannot reuse the original
-owner's attempt authorization.
