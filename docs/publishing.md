@@ -1,6 +1,6 @@
 # Publishing Ensoul
 
-Immutable GitHub Releases are canonical. Each new release carries the tested package archive and its provenance. npm is an optional downstream mirror and can lag without blocking a GitHub release or skill installation. Existing releases through `v0.3.2` have no package assets; preserve them unchanged. The first canonical attempt, `v0.3.3`, verified and attested its package but stopped at GitHub draft lookup. Its protected tag and empty draft remain as failure evidence; `v0.3.4` corrects lookup without replacing them.
+Immutable GitHub Releases are canonical. Each new release carries the tested package archive and its provenance. npm is an optional downstream mirror and can lag without blocking a GitHub release or skill installation. Existing releases through `v0.3.2` have no package assets; preserve them unchanged. Canonical attempts `v0.3.3` and `v0.3.4` verified and attested their packages but stopped at GitHub draft lookup. Their protected tags and empty drafts remain as failure evidence. `v0.3.5` discovers prior drafts through authenticated listing and retains the ID returned by creation, so a missing immediate list result cannot strand a new draft.
 
 ## Provider prerequisites
 

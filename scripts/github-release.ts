@@ -214,9 +214,13 @@ function publish(directory: string): void {
   const m = verifyFiles(directory); bindExpectedFiles(directory, m); verifyProvenance(directory, m); controls(m);
   let release = findRelease(m.tag);
   if (!release) {
-    gh(["release", "create", m.tag, "--repo", REPOSITORY, "--verify-tag", "--draft", "--target", m.sourceSha, "--title", `Ensoul ${m.tag}`, "--notes", releaseBody(m)]);
-    release = findRelease(m.tag);
-    requireThat(release, "Created draft is absent from authenticated releases");
+    controls(m);
+    release = object(JSON.parse(gh(["api", "--method", "POST", `/repos/${REPOSITORY}/releases`,
+      "-f", `tag_name=${m.tag}`, "-f", `target_commitish=${m.sourceSha}`,
+      "-f", `name=Ensoul ${m.tag}`, "-f", `body=${releaseBody(m)}`,
+      "-F", "draft=true", "-F", "prerelease=false"])));
+    // The creation response is authoritative; draft discovery can omit a
+    // newly created record. Retain its ID instead of querying the list again.
   }
   verifyReleaseRecord(release, m, directory, true); verifyRemoteBytes(release, directory);
   if (release.draft) {
