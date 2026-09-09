@@ -111,14 +111,20 @@ if(args[0]==='attestation'){
   output(f.verified);
 }else if(args[0]==='api'){
   const endpoint=args.find(a=>a.startsWith('/repos/hraness/ensoul'));
-  if(endpoint.endsWith('/releases/tags/v0.3.3')){if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');if(!fs.existsSync(state)||read().draft)fail('gh: Not Found (HTTP 404)');output(read());}
+  if(endpoint==='/repos/hraness/ensoul/releases'&&args.includes('POST')){
+    if(fs.existsSync(state))fail('Draft must not be recreated');
+    const field=name=>args.find(a=>a.startsWith(name+'='))?.slice(name.length+1);
+    if(field('draft')!=='true'||field('prerelease')!=='false')fail('Invalid draft create');
+    const release={...f.release,tag_name:field('tag_name'),target_commitish:field('target_commitish'),name:field('name'),body:field('body'),draft:true,immutable:false,assets:[]};save(release);output(release);
+  }
+  else if(endpoint.endsWith('/releases/tags/v0.3.3')){if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');if(!fs.existsSync(state)||read().draft)fail('gh: Not Found (HTTP 404)');output(read());}
   else if(endpoint.includes('/releases?per_page=100&page=')){
     if(process.env.MOCK_LOOKUP_403==='true')fail('gh: Forbidden (HTTP 403)');
     const page=Number(endpoint.split('page=').at(-1));
     const current=fs.existsSync(state)?read():null;
     if(process.env.MOCK_DUPLICATE_DRAFT==='true'&&current)output([current,{...current,id:current.id+1}]);
     else if(process.env.MOCK_RELEASE_PAGE==='2'&&page===1)output(Array.from({length:100},(_,i)=>({id:1000+i,tag_name:'unrelated-'+i})));
-    else output(current?[current]:[]);
+    else output(current&&process.env.MOCK_POST_CREATE_HIDDEN!=='true'?[current]:[]);
   }
   else if(endpoint==='/repos/hraness/ensoul/releases/77'){const release=read();output(process.env.MOCK_RELEASE_ID_DRIFT==='true'?{...release,id:78}:release);}
   else if(endpoint.endsWith('/releases/latest'))output(fs.existsSync(state)&&read().draft===false?read():{id:66,tag_name:process.env.MOCK_LATEST||'v0.3.2',draft:false,prerelease:false,immutable:true});
@@ -160,29 +166,32 @@ if(args[0]==='fetch'){}else if(args[0]==='rev-parse')process.stdout.write(f.mani
   return {run,mirror,calls,state:join(f.root,"release.json"),log:join(f.root,"calls.jsonl")};
 }
 
+function mutations(calls: string[][]): string[][] {
+  return calls.filter(c=>c[0]==="release" || (c[0]==="api" && c[2]==="POST"));
+}
 describe("canonical publication provider boundary",()=>{
   test("creates a draft, uploads exact bytes, verifies readback and makes immutable Latest",()=>{
     const f=fixture();try {
-      const mock=installProviderMock(f);const result=mock.run();
+      const mock=installProviderMock(f);const result=mock.run({MOCK_POST_CREATE_HIDDEN:"true"});
       expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
-      const mutations=mock.calls().filter(c=>c[0]==="release");
-      expect(mutations.map(c=>c[1])).toEqual(["create",...Array(5).fill("upload"),"edit"]);
+      const writes=mutations(mock.calls());
+      expect(writes.map(c=>c[0]==="api"?"create":c[1])).toEqual(["create",...Array(5).fill("upload"),"edit"]);
       verifyReleaseRecord(JSON.parse(readFileSync(mock.state,"utf8")),f.m,f.dir,false);
       writeFileSync(mock.log,"");expect(mock.run().exitCode).toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+      expect(mutations(mock.calls())).toHaveLength(0);
     } finally {f.cleanup();}
   }, 10_000);
   test("resumes a matching partial draft without overwriting assets",()=>{
     const f=fixture();try {
       const mock=installProviderMock(f);writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:f.release.assets.slice(0,1)}));
       const result=mock.run();expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release").map(c=>c[1])).toEqual([...Array(4).fill("upload"),"edit"]);
+      expect(mutations(mock.calls()).map(c=>c[1])).toEqual([...Array(4).fill("upload"),"edit"]);
     } finally {f.cleanup();}
   });
   for(const [name,flag] of [["provider lookup denial","MOCK_LOOKUP_403"],["unverified provenance","MOCK_PROVENANCE_FAILURE"],["moved tag","MOCK_MOVED_TAG"],["current helper drift","MOCK_CONTROL_DRIFT"]]) test(`does not publish after ${name}`,()=>{
     const f=fixture();try {
       const mock=installProviderMock(f);const result=mock.run({[flag!]:"true"});expect(result.exitCode).not.toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+      expect(mutations(mock.calls())).toHaveLength(0);
     } finally {f.cleanup();}
   });
   test("discovers a matching draft on a later page and retains its provider ID",()=>{
@@ -191,7 +200,7 @@ describe("canonical publication provider boundary",()=>{
       writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:f.release.assets}));
       const result=mock.run({MOCK_RELEASE_PAGE:"2"});
       expect(result.stderr.toString()).toBe("");expect(result.exitCode).toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release").map(c=>c[1])).toEqual(["edit"]);
+      expect(mutations(mock.calls()).map(c=>c[1])).toEqual(["edit"]);
       expect(mock.calls().some(c=>c.some(a=>a.endsWith("page=2")))).toBe(true);
     } finally {f.cleanup();}
   });
@@ -200,7 +209,7 @@ describe("canonical publication provider boundary",()=>{
       const mock=installProviderMock(f);
       writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:[]}));
       expect(mock.run({[flag]:"true"}).exitCode).not.toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+      expect(mutations(mock.calls())).toHaveLength(0);
     } finally {f.cleanup();}
   });
   test("rejects changed trusted handoff before invoking provenance or mutation",()=>{
@@ -214,10 +223,10 @@ describe("canonical publication provider boundary",()=>{
   test("does not regress Latest or reinterpret another attempt's draft",()=>{
     const f=fixture();try {
       const mock=installProviderMock(f);expect(mock.run({MOCK_LATEST:"v0.3.4"}).exitCode).not.toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+      expect(mutations(mock.calls())).toHaveLength(0);
       writeFileSync(mock.state,JSON.stringify({...f.release,draft:true,immutable:false,assets:[],body:releaseBody({...f.m,runAttempt:2})}));
       expect(mock.run().exitCode).not.toBe(0);
-      expect(mock.calls().filter(c=>c[0]==="release")).toHaveLength(0);
+      expect(mutations(mock.calls())).toHaveLength(0);
     } finally {f.cleanup();}
   });
 });

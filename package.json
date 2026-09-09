@@ -1,6 +1,6 @@
 {
   "name": "@hraness/ensoul",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Turn an authorized corpus into a dated, evidence-calibrated working model of a person with explicit privacy and proxy boundaries.",
   "license": "MIT",
   "type": "module",
