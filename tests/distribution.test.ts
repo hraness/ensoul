@@ -262,8 +262,8 @@ describe("distribution identity", () => {
   test("documents the official marketplace badge and release-pinned installs", () => {
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     expect(readme).toContain("[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)");
-    expect(readme).toContain(`bunx skills add hraness/ensoul#v${version} --skill ensoul`);
-    expect(readme).toContain(`bun add --exact @hraness/ensoul@${version}`);
+    expect(readme).toContain("bunx skills add hraness/ensoul#v0.3.2 --skill ensoul");
+    expect(readme).toContain(`bun add --exact https://github.com/hraness/ensoul/releases/download/v${version}/hraness-ensoul-${version}.tgz`);
     expect(readme).toContain("node_modules/@hraness/ensoul/skills/ensoul/");
   });
 
@@ -296,6 +296,8 @@ describe("delivery policy", () => {
   test("requires trusted npm staging without a long-lived token", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
     expect(workflow).toContain("id-token: write");
+    const model = Bun.YAML.parse(workflow) as { name: string; jobs: {stage: {steps: Array<{env?: {EXPECTED_WORKFLOW_NAME?: string}}>}} };
+    expect(model.jobs.stage.steps.find(step => step.env?.EXPECTED_WORKFLOW_NAME)?.env?.EXPECTED_WORKFLOW_NAME).toBe(model.name);
     expect(workflow).toContain('npm stage publish "$TARBALL"');
     expect(workflow).toContain("npm config get tag");
     expect(workflow).toContain('"$configured_tag" != latest');
@@ -338,7 +340,7 @@ describe("delivery policy", () => {
     expect(stage).not.toContain("actions/checkout@");
     expect(stage).not.toContain("setup-bun@");
     expect(stage).not.toContain("bun ");
-    expect(stage).toContain("permissions:\n      actions: read\n      id-token: write");
+    expect(stage).toContain("permissions:\n      actions: read\n      contents: read\n      id-token: write");
     expect(stage.indexOf("Reauthorize current npm stage attempt"))
       .toBeLessThan(stage.indexOf("actions/setup-node@"));
     expect(stage).toContain("attempt.actor?.id !== actorId");
@@ -368,7 +370,7 @@ describe("delivery policy", () => {
     expect(stage).toContain("33558844386");
     expect(stage).toContain('git --git-dir="$current_main" fetch');
     expect(stage).toContain('"$GITHUB_SHA" != "$current_default_sha"');
-    expect(stage).toContain("git ls-remote --exit-code --refs");
+    expect(stage).toContain("Canonical immutable release is required before staging");
     expect(stage.lastIndexOf('npm view "@hraness/ensoul" dist-tags.latest'))
       .toBeLessThan(stage.indexOf('npm stage publish "$TARBALL"'));
     expect(stage.lastIndexOf("Record exclusive stable-stage intent"))
@@ -857,7 +859,7 @@ describe("delivery policy", () => {
           '  "cat-file -t refs/ensoul-release-tags/v0.3.3") printf \'tag\\n\' ;;',
           '  "merge-base --is-ancestor "*) ;;',
           '  "diff --quiet --no-ext-diff --no-textconv "*) [[ "${MOCK_CONTROL_DRIFT:-false}" != true ]] ;;',
-          '  "tag --list v"*) printf \'v0.3.3\\n\' ;;',
+          '  "ls-remote --tags --refs origin refs/tags/v*") printf \'%s\\trefs/tags/v0.3.3\\n\' "$MOCK_SOURCE_SHA" ;;',
           '  *) echo "unexpected git invocation: $*" >&2; exit 2 ;;',
           "esac",
         ].join("\n")),
@@ -916,216 +918,30 @@ describe("delivery policy", () => {
     }
   });
 
-  test("verifies public npm bytes before immutable release publication", () => {
+  test("separates source verification, attestation, publication, and optional npm mirroring", () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
-    expect(workflow).toContain('npm pack "$package_name@$package_version"');
-    expect(workflow).toContain("source_payload_sha256");
-    expect(workflow).toContain("registry_payload_sha256");
-    expect(workflow).toContain('npm view "$package_name" dist-tags.latest');
-    expect(workflow).toContain("npm audit signatures");
-    expect(workflow).toContain("--include-attestations");
+    const attest = workflow.split("\n  attest:\n")[1]!.split("\n  publish:\n")[0]!;
+    const publish = workflow.split("\n  publish:\n")[1]!;
+    expect(attest).not.toContain("actions/checkout@");
+    expect(attest).not.toContain("setup-bun@");
+    expect(attest).not.toContain("bun ");
+    expect(attest).toContain("id-token: write");
+    expect(attest).toContain("attestations: write");
+    expect(attest.indexOf("Reauthorize current release attempt")).toBeLessThan(attest.indexOf("actions/attest@"));
+    expect(attest).toContain("attempt.triggering_actor?.id !== actorId");
+    expect(publish).toContain("needs: [verify, attest]");
+    expect(publish).not.toContain("id-token: write");
+    expect(workflow).not.toContain("npm view");
+    expect(workflow).not.toContain("npm audit");
     expect(workflow).toContain('git show "$WORKFLOW_SHA:scripts/package-smoke.ts"');
-    expect(workflow).toContain('git show "$WORKFLOW_SHA:scripts/npm-provenance-identity.ts"');
-    expect(workflow).toContain('git hash-object "$current_tool"');
+    expect(workflow).toContain('git show "$WORKFLOW_SHA:scripts/github-release.ts"');
     expect(workflow).toContain('bun --no-env-file --config=/dev/null run "$current_package_smoke"');
-    expect(workflow).toContain('bun --no-env-file --config=/dev/null run "$current_provenance_identity"');
-    expect(workflow).toContain("Published npm provenance is not bound to the completed owner-authorized stage attempt");
-    expect(workflow).toContain('attempt.status !== "completed"');
-    expect(workflow).toContain('attempt.conclusion !== "success"');
-    expect(workflow).toContain("IMMUTABLE_RELEASES_ENABLED: ${{ vars.IMMUTABLE_RELEASES_ENABLED }}");
-    expect(workflow).toContain('REF_PROTECTED: ${{ github.ref_protected }}');
-    expect(workflow).toContain('"$GITHUB_ACTOR_ID" != "$EXPECTED_ACTOR_ID"');
-    expect(workflow).toContain("attempt.triggering_actor?.id !== actorId");
-    expect(workflow).toContain('value?.object?.type !== "tag"');
-    expect(workflow).toContain('"/repos/$GITHUB_REPOSITORY/compare/$VERIFIED_SOURCE_SHA...$current_default_sha"');
-    expect(workflow).toContain("release.author?.id !== 41898282");
-    expect(workflow).toContain('release.author?.login !== "github-actions[bot]"');
-    expect(workflow).toContain('release.body !== process.env.EXPECTED_BODY');
-    expect(workflow).toContain("Tagged and current release workflow controls differ");
-    expect(workflow).toContain("verify_current_release_controls");
-    expect(workflow).toContain("Current release verifier controls changed after verification");
-    expect(workflow).toContain("ref: main");
-    expect(workflow).not.toContain('gh api "/repos/$GITHUB_REPOSITORY/immutable-releases"');
-    expect(workflow.indexOf("Require immutable releases before publication"))
-      .toBeLessThan(workflow.indexOf('gh release create "$GITHUB_REF_NAME"'));
-    const publishJob = workflow.slice(workflow.indexOf("\n  publish:\n"));
-    expect(publishJob.lastIndexOf('npm view "@hraness/ensoul" dist-tags.latest'))
-      .toBeLessThan(publishJob.indexOf('gh release create "$GITHUB_REF_NAME"'));
-  });
-
-  test("release publication authenticates exact Actions-authored provenance and live npm latest", async () => {
-    const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
-    const script = workflowStepScript(workflow, "Publish verified GitHub release");
-    const root = await mkdtemp(join(tmpdir(), "ensoul-release-record-"));
-    const binaryDirectory = join(root, "bin");
-    const releaseJson = join(root, "release.json");
-    const releaseCreated = join(root, "release-created");
-    const commandLog = join(root, "commands.log");
-    const sourceSha = "b".repeat(40);
-    const mainSha = "c".repeat(40);
-    const releaseVersion = "0.3.3";
-    const releaseTag = `v${releaseVersion}`;
-    const runId = "76543";
-    const releaseBody = [
-      "Automated immutable Ensoul release.",
-      "",
-      `Source: ${sourceSha}`,
-      "Workflow: .github/workflows/release.yml",
-      `Run: https://github.com/hraness/ensoul/actions/runs/${runId}`,
-    ].join("\n");
-    const exactRelease = {
-      assets: [],
-      author: { id: 41898282, login: "github-actions[bot]", type: "Bot" },
-      body: releaseBody,
-      draft: false,
-      id: 1234,
-      immutable: true,
-      name: `Ensoul ${releaseTag}`,
-      prerelease: false,
-      tag_name: releaseTag,
-    };
-    try {
-      await mkdir(binaryDirectory, { recursive: true });
-      await Promise.all([
-        writeFile(releaseJson, JSON.stringify(exactRelease)),
-        writeFile(join(binaryDirectory, "npm"), [
-          "#!/bin/bash",
-          "set -euo pipefail",
-          'printf \'"%s"\\n\' "$MOCK_NPM_LATEST"',
-        ].join("\n")),
-        writeFile(join(binaryDirectory, "gh"), [
-          "#!/bin/bash",
-          "set -euo pipefail",
-          'printf \'%s\\n\' "$*" >> "$GH_COMMAND_LOG"',
-          'if [[ "$1" == api ]]; then',
-          '  endpoint=""',
-          '  for argument in "$@"; do',
-          '    if [[ "$argument" == /repos/* ]]; then endpoint="$argument"; fi',
-          '  done',
-          '  case "$endpoint" in',
-          '    */commits/main) printf \'%s\\n\' "$MOCK_MAIN_SHA" ;;',
-          '    */commits/v*) printf \'%s\\n\' "$MOCK_SOURCE_SHA" ;;',
-          '    */compare/*) printf \'ahead\\n\' ;;',
-          '    */releases/tags/*)',
-          '      if [[ "$MOCK_RELEASE_PRESENT" == true || -f "$MOCK_RELEASE_CREATED" ]]; then',
-          '        cat "$MOCK_RELEASE_JSON"',
-          '      else',
-          '        echo "gh: Not Found (HTTP 404)" >&2',
-          '        exit 1',
-          '      fi',
-          '      ;;',
-          '    */releases/latest) printf \'%s\\n\' "$MOCK_RELEASE_TAG" ;;',
-          '    *) echo "unexpected gh api endpoint: $endpoint" >&2; exit 2 ;;',
-          '  esac',
-          'elif [[ "$1 $2" == "release create" ]]; then',
-          '  : > "$MOCK_RELEASE_CREATED"',
-          "else",
-          '  echo "unexpected gh invocation: $*" >&2',
-          '  exit 2',
-          "fi",
-        ].join("\n")),
-        writeFile(join(binaryDirectory, "git"), [
-          "#!/bin/bash",
-          "set -euo pipefail",
-          'case "$*" in',
-          '  "fetch --no-tags --force origin "*) ;;',
-          '  "rev-parse refs/remotes/ensoul-release-current/main") printf \'%s\\n\' "$MOCK_MAIN_SHA" ;;',
-          '  "merge-base --is-ancestor "*) ;;',
-          '  "diff --quiet --no-ext-diff --no-textconv "*"scripts/package-smoke.ts"*)',
-          '    [[ "${MOCK_HELPER_DRIFT:-false}" != true ]]',
-          '    ;;',
-          '  "diff --quiet --no-ext-diff --no-textconv "*".github/workflows/release.yml"*)',
-          '    [[ "${MOCK_WORKFLOW_DRIFT:-false}" != true ]]',
-          '    ;;',
-          '  *) echo "unexpected git invocation: $*" >&2; exit 2 ;;',
-          "esac",
-        ].join("\n")),
-      ]);
-      await Promise.all([
-        chmod(join(binaryDirectory, "npm"), 0o755),
-        chmod(join(binaryDirectory, "gh"), 0o755),
-        chmod(join(binaryDirectory, "git"), 0o755),
-      ]);
-      const environment = {
-        PATH: `${binaryDirectory}:${process.env.PATH ?? ""}`,
-        DEFAULT_BRANCH: "main",
-        GH_COMMAND_LOG: commandLog,
-        GITHUB_EVENT_NAME: "push",
-        GITHUB_REF: `refs/tags/${releaseTag}`,
-        GITHUB_REF_NAME: releaseTag,
-        GITHUB_REPOSITORY: "hraness/ensoul",
-        GITHUB_RUN_ID: runId,
-        GITHUB_SHA: sourceSha,
-        MOCK_MAIN_SHA: mainSha,
-        MOCK_NPM_LATEST: releaseVersion,
-        MOCK_RELEASE_CREATED: releaseCreated,
-        MOCK_RELEASE_JSON: releaseJson,
-        MOCK_RELEASE_PRESENT: "true",
-        MOCK_RELEASE_TAG: releaseTag,
-        MOCK_SOURCE_SHA: sourceSha,
-        RUNNER_TEMP: root,
-        VERIFIED_SOURCE_SHA: sourceSha,
-        VERIFIED_TAG: releaseTag,
-        WORKFLOW_SHA: mainSha,
-      };
-
-      const acceptedExisting = await runWorkflowScript(script, environment);
-      expect(acceptedExisting.exitCode).toBe(0);
-      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
-
-      await writeFile(releaseJson, JSON.stringify({
-        ...exactRelease,
-        author: { id: 1, login: "attacker", type: "User" },
-      }));
-      const hostileExisting = await runWorkflowScript(script, environment);
-      expect(hostileExisting.exitCode).not.toBe(0);
-      expect(hostileExisting.stderr).toContain("not the exact immutable Actions-authored release");
-
-      await writeFile(releaseJson, JSON.stringify(exactRelease));
-      await writeFile(commandLog, "");
-      const workflowDrift = await runWorkflowScript(script, {
-        ...environment,
-        MOCK_RELEASE_PRESENT: "false",
-        MOCK_WORKFLOW_DRIFT: "true",
-      });
-      expect(workflowDrift.exitCode).not.toBe(0);
-      expect(workflowDrift.stderr).toContain("Tagged and current release workflow controls differ");
-      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
-
-      await writeFile(commandLog, "");
-      const helperDrift = await runWorkflowScript(script, {
-        ...environment,
-        MOCK_HELPER_DRIFT: "true",
-        MOCK_RELEASE_PRESENT: "false",
-      });
-      expect(helperDrift.exitCode).not.toBe(0);
-      expect(helperDrift.stderr).toContain("Current release verifier controls changed after verification");
-      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
-
-      await writeFile(commandLog, "");
-      const staleNpm = await runWorkflowScript(script, {
-        ...environment,
-        MOCK_NPM_LATEST: "0.3.4",
-        MOCK_RELEASE_PRESENT: "false",
-      });
-      expect(staleNpm.exitCode).not.toBe(0);
-      expect(staleNpm.stdout).toContain("npm latest advanced before release mutation");
-      expect(await readFile(commandLog, "utf8")).not.toContain("release create");
-
-      await writeFile(commandLog, "");
-      const created = await runWorkflowScript(script, {
-        ...environment,
-        MOCK_RELEASE_PRESENT: "false",
-      });
-      expect(created.exitCode).toBe(0);
-      const createdLog = await readFile(commandLog, "utf8");
-      expect(createdLog).toContain("release create");
-      expect(createdLog).toContain(`--title Ensoul ${releaseTag}`);
-      expect(createdLog).toContain(`Source: ${sourceSha}`);
-      expect(createdLog).toContain(`actions/runs/${runId}`);
-    } finally {
-      await rm(root, { force: true, recursive: true });
-    }
+    expect(workflow).toContain("canonical-package-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(workflow).toContain("attested-package-${{ github.run_id }}-${{ github.run_attempt }}");
+    const mirror = readFileSync(join(ROOT, ".github/workflows/npm-stage.yml"), "utf8");
+    expect(mirror).toContain('node scripts/github-release.ts mirror "$canonical_directory"');
+    expect(mirror).not.toContain("npm pack ");
+    expect(mirror).not.toContain("npm delivery must precede");
   });
 
   test("binds cryptographically audited npm attestations to the exact stage attempt", async () => {

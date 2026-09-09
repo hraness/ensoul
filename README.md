@@ -1,7 +1,7 @@
 # Ensoul
 
 [![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)
-[![npm](https://img.shields.io/npm/v/%40hraness%2Fensoul)](https://www.npmjs.com/package/@hraness/ensoul)
+[![GitHub release](https://img.shields.io/github/v/release/hraness/ensoul)](https://github.com/hraness/ensoul/releases/latest)
 
 **Understand a person without pretending to contain them.**
 
@@ -64,13 +64,15 @@ Use $ensoul to build a dated working model of <person> from these authorized sou
 
 ### Immutable package artifact
 
-For a release-bound package artifact, install the exact public npm version:
+GitHub Releases are the canonical distribution. Versions starting with `v0.3.3` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Once that version appears in [Releases](https://github.com/hraness/ensoul/releases), install its exact archive:
 
 ```sh
-bun add --exact @hraness/ensoul@0.3.2
+bun add --exact https://github.com/hraness/ensoul/releases/download/v0.3.3/hraness-ensoul-0.3.3.tgz
 ```
 
-The inert-on-install npm package has no dependencies or lifecycle scripts. It carries the same complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/` for consumers that want to inspect or vendor an immutable registry artifact. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
+The same URL works with `npm install`. Use a versioned URL to keep installations reproducible. The package is inert on installation, has no dependencies or lifecycle scripts, and carries the complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/`.
+
+npm remains an optional mirror and can lag behind GitHub Releases. Existing npm versions remain available. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
 
 ### Bounded source packets
 
