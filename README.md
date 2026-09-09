@@ -51,7 +51,7 @@ The ambition is whole-person. The claim is never completeness.
 Install the single public Agent Skill from GitHub through skills.sh:
 
 ```sh
-bunx skills add hraness/ensoul#v0.3.2 --skill ensoul
+bunx skills add hraness/ensoul#v0.3.5 --skill ensoul
 ```
 
 The installer supports Codex, Claude Code, Cursor, and other compatible agents. Review the skill before installation and start a new agent session afterward.
@@ -64,7 +64,7 @@ Use $ensoul to build a dated working model of <person> from these authorized sou
 
 ### Immutable package artifact
 
-GitHub Releases are the canonical distribution. Versions starting with `v0.3.5` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Once that version appears in [Releases](https://github.com/hraness/ensoul/releases), install its exact archive:
+GitHub Releases are the canonical distribution. Versions starting with `v0.3.5` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Install the verified [v0.3.5 release](https://github.com/hraness/ensoul/releases/tag/v0.3.5) from its exact archive:
 
 ```sh
 bun add --exact https://github.com/hraness/ensoul/releases/download/v0.3.5/hraness-ensoul-0.3.5.tgz
