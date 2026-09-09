@@ -262,7 +262,7 @@ describe("distribution identity", () => {
   test("documents the official marketplace badge and release-pinned installs", () => {
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     expect(readme).toContain("[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)");
-    expect(readme).toContain("bunx skills add hraness/ensoul#v0.3.2 --skill ensoul");
+    expect(readme).toContain("bunx skills add hraness/ensoul#v0.3.5 --skill ensoul");
     expect(readme).toContain(`bun add --exact https://github.com/hraness/ensoul/releases/download/v${version}/hraness-ensoul-${version}.tgz`);
     expect(readme).toContain("node_modules/@hraness/ensoul/skills/ensoul/");
   });
