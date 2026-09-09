@@ -1,6 +1,6 @@
 # Publishing Ensoul
 
-Immutable GitHub Releases are canonical. Each new release carries the tested package archive and its provenance. npm is an optional downstream mirror and can lag without blocking a GitHub release or skill installation. Existing releases through `v0.3.2` have no package assets; preserve them unchanged.
+Immutable GitHub Releases are canonical. Each new release carries the tested package archive and its provenance. npm is an optional downstream mirror and can lag without blocking a GitHub release or skill installation. Existing releases through `v0.3.2` have no package assets; preserve them unchanged. The first canonical attempt, `v0.3.3`, verified and attested its package but stopped at GitHub draft lookup. Its protected tag and empty draft remain as failure evidence; `v0.3.4` corrects lookup without replacing them.
 
 ## Provider prerequisites
 
@@ -16,7 +16,7 @@ Before granting another person write access, add a provider-enforced release-wor
 2. Create an annotated `v<VERSION>` tag at its exact merged source and push that protected tag. No npm publication is required.
 3. The read-only verification job runs the tagged product gates, packs once, and tests the exact archive through the existing npm/Bun installed-payload smoke. It imports hash-verified package and release helpers from current `main`; tagged release workflows must equal current-main authority.
 4. A separate job, with no product checkout or code, reauthorizes the current owner attempt and attests the archive, packing receipt, release manifest, and checksums. The handoff names bind the current run and attempt.
-5. The publisher verifies the GitHub attestation signatures, hosted runner certificate, repository, tag source, workflow, exact run/attempt, and all four subjects. It checks current-main workflow/helper closure, protected tag identity, stable version ordering and live owner authority before each mutation. It creates a draft, uploads only missing matching assets, checks provider digests and downloaded bytes, then publishes immutable Latest.
+5. The publisher verifies the GitHub attestation signatures, hosted runner certificate, repository, tag source, workflow, exact run/attempt, and all four subjects. It checks current-main workflow/helper closure, protected tag identity, stable version ordering and live owner authority before each mutation. It discovers drafts through bounded authenticated release enumeration (the tag endpoint omits them), retains the exact release ID, uploads only missing matching assets, checks provider digests and downloaded bytes, then publishes immutable Latest.
 6. Verify the live five assets and an isolated installation. Update the README's published skill pin after that version exists; the previous published pin remains usable during preparation.
 
 The five assets are `hraness-ensoul-<VERSION>.tgz`, `npm-pack.json`, `release-manifest.json`, `SHA256SUMS`, and `provenance.jsonl`. The manifest uses `hraness-github-release-v1`, names the exact source and verification authority, and records SHA-256 and SHA-512 of the archive. Checksums provide integrity; the verified GitHub certificate provides provenance. Neither an unsigned manifest nor a checksum is sufficient authority.
