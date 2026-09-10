@@ -61,6 +61,12 @@ npm view @hraness/soulscrape@<VERSION> dist.integrity dist.attestations.url
 - Present version with the exact integrity from `release-manifest.json`: rerun the failed jobs; `publish_npm` recognizes the state and `admit_npm` verifies it.
 - Present version with different bytes: stop. npm versions are immutable; the next release must use a new version, and the mismatch is an incident to record.
 
+## Verify a canonical artifact after npm recovery
+
+The signed release manifest retains the original run and attempt even when a later npm job fails. The read-only `mirror` helper admits a failed original attempt only when its complete, bounded job inventory proves that `Authorize owner release tag`, `Verify`, `Attest verified package`, and `Publish canonical GitHub release` each succeeded exactly once for the signed run, attempt, and source. Missing, duplicate, unfinished, or mismatched canonical jobs fail admission.
+
+The helper separately requires the same run's latest attempt to be completed and successful, with the same owner, source, tag, repository, and workflow identity and an attempt number at least as recent as the signed receipt. This does not change the original provenance or admit an unfinished recovery. Signature verification, archive bytes, immutable release identity, annotated tag, source reachability, and current-main checks still apply. Publication retains its existing in-progress, owner-authorized current-attempt requirements.
+
 ## Website
 
 `site/` is a Next.js application for soulscrape.com. Its landing copy is generated from the README block between the `hraness:soulscrape-landing` markers by `bun run sync:readme`; CI fails when the committed `site/app/landing.generated.ts` drifts from the README. `site/published-release.json` names the release the site advertises; update it only after that release's assets and installation have been verified live.
