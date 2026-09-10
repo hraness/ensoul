@@ -49,7 +49,15 @@ function rewriteRelativeTargets(html: string): string {
 }
 
 function headingText(html: string): string {
-  return decodeCharacterReferences(html.replace(/<[^>]+>/gu, ""))
+  // Parse text nodes instead of trying to remove nested or malformed markup.
+  // The extracted text is used only to derive a restricted fragment identifier.
+  let text = "";
+  new HTMLRewriter().onDocument({
+    text(chunk) {
+      text += chunk.text;
+    },
+  }).transform(html);
+  return decodeCharacterReferences(text)
     .replaceAll("&quot;", '"')
     .replaceAll("&apos;", "'")
     .replaceAll("&#39;", "'")

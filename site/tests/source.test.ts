@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { renderLandingModule } from "../scripts/sync-readme.ts";
-import { extractLandingMarkdown } from "../scripts/readme-html.ts";
+import { extractLandingMarkdown, renderReadmeHtml } from "../scripts/readme-html.ts";
 import { landingHtml } from "../app/landing.generated.ts";
 
 const site = join(import.meta.dir, "..");
@@ -122,5 +122,55 @@ describe("Soulscrape site source contract", () => {
     expect(sitemap).toContain("<loc>https://soulscrape.com/</loc>");
     expect(robots).toContain("Sitemap: https://soulscrape.com/sitemap.xml");
     expect(`${home}\n${layout}`).not.toMatch(/\/Users\/[^/\s]+|\/private\/tmp\/[^\s)]+/iu);
+  });
+});
+
+
+describe("README HTML boundary", () => {
+  test("derives stable fragments from parsed heading text", () => {
+    const html = renderReadmeHtml([
+      "## **Hello** &amp; `world`",
+      "## **Hello** &amp; `world`",
+      "[First](#hello--world) [Again](#hello--world-1)",
+    ].join("\n\n"));
+    expect(html).toContain('<h2 id="hello--world"><strong>Hello</strong> &amp; <code>world</code></h2>');
+    expect(html).toContain('<h2 id="hello--world-1">');
+  });
+
+  test("keeps raw and nested malformed HTML inert, including inside headings", () => {
+    const payloads = [
+      '<script>alert(1)</script>',
+      '<sc<script>ript>alert(1)</sc</script>ript>',
+      '<img src="x" onerror="alert(1)">',
+      '<svg onload="alert(1)"><a href="javascript:alert(1)">x</a></svg>',
+      '<textarea><img src=x onerror=alert(1)></textarea>',
+    ];
+    for (const payload of payloads) {
+      const html = renderReadmeHtml(`## Literal ${payload}\n\n${payload}`);
+      const elements: string[] = [];
+      const ids: string[] = [];
+      new HTMLRewriter().on("*", {
+        element(element) {
+          elements.push(element.tagName);
+          for (const [name] of element.attributes) expect(name).not.toMatch(/^on/iu);
+          const id = element.getAttribute("id");
+          if (id !== null) ids.push(id);
+        },
+      }).transform(html);
+      expect(elements).toEqual(["h2", "p"]);
+      expect(ids).toHaveLength(1);
+      expect(ids[0]).toMatch(/^[\p{Letter}\p{Mark}\p{Number}_-]+$/u);
+      expect(html).toContain("&lt;");
+    }
+  });
+
+  test("rejects executable and protocol-relative Markdown URLs", () => {
+    for (const target of ["javascript:alert", "java&#x73;cript:alert", "data:text/html,bad", "//example.com"]) {
+      expect(() => renderReadmeHtml(`[link](${target})`)).toThrow();
+      expect(() => renderReadmeHtml(`![image](${target})`)).toThrow();
+    }
+    expect(renderReadmeHtml("[Reference](docs/example.md)")).toContain(
+      'href="https://github.com/hraness/soulscrape/blob/main/docs/example.md"',
+    );
   });
 });
