@@ -21,7 +21,7 @@ Before granting another person write access, add a provider-enforced release-wor
 The [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/) require npm 11.15 or later, an existing package, package write access, and account two-factor authentication. npm cannot bind a trusted publisher before the package exists. The owner performs the first publication of `@hraness/soulscrape` once, then binds the workflow:
 
 1. Merge the release change and pass the repository and site gates.
-2. Establish the coordinate using a separately reviewed bootstrap prerelease, never the stable version intended for the tag workflow. Use `<stable-version>-bootstrap.1` on the sole `bootstrap` dist-tag, keep it off `latest`, and use the provider-required interactive authentication or staged approval. Do not publish `0.4.0` interactively: its admission gate requires provenance from the exact protected tag push, which a local publication cannot provide.
+2. Establish the coordinate using the separately reviewed `0.4.0-bootstrap.1` prerelease with `--tag bootstrap` and the provider-required interactive authentication or staged approval. Registry readback for this publication returned both `bootstrap` and `latest` pointing to that prerelease. The first stable release gate admits either the sole `bootstrap` tag or those two tags, only when the complete registry metadata contains exactly this one version, with the matching package name, version, and reviewed archive integrity below. Extra versions, unrelated tags, or a different archive fail admission. This exception applies only to the `0.4.0` candidate. Do not publish `0.4.0` interactively: its admission gate requires provenance from the exact protected tag push, which a local publication cannot provide.
 3. Bind the workflow identity and verify it:
 
    ```sh
@@ -30,6 +30,8 @@ The [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/
    ```
 
 4. Verify the package policy and environment, then push the stable tag for the unchanged reviewed source. The tag workflow must create the first stable version with its own OIDC provenance. An existing identical stable version is admissible only if its attestations already bind the required workflow, tag source, and run identity.
+
+The reviewed bootstrap archive has integrity `sha512-mzPKNSBBJTlA7y5iEBcaA+Aw+V818UH49+jtQAygjGOPO60GfzF1daMHE8RYdW1+quyswli1H4fnPNmfA93tzw==`. Later releases retain the ordinary stable-version ordering check against `latest`. A candidate that appears between registry reads requires reconciliation before retrying; the existing exact-byte idempotency and provenance admission gates still apply.
 
 The bootstrap is the sole traditional-credential exception. Do not store an npm password, session cookie, one-time password, recovery code, or token in GitHub.
 
