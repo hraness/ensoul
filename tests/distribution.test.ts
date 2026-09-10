@@ -424,27 +424,113 @@ describe("delivery policy", () => {
     expect(workflow).toContain("attested-package-${{ github.run_id }}-${{ github.run_attempt }}");
   });
 
-  test("npm latest guard permits an isolated bootstrap tag and fails closed on invalid registry state", async () => {
+  test("npm latest guard admits only the reviewed first-publication inventory and preserves stable ordering", async () => {
     const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
-    const start = workflow.indexOf('          const maximum = 9007199254740991n;');
+    const invocation = workflow.indexOf('          REGISTRY_JSON="$registry_json" EXPECTED_VERSION="$EXPECTED_VERSION" node');
+    const start = workflow.indexOf('          const { readFileSync } = require("node:fs");', invocation);
     const end = workflow.indexOf("\n          NODE", start);
     const guard = workflow.slice(start, end).split("\n").map(line => line.slice(10)).join("\n");
-    expect(start).toBeGreaterThan(0);
+    expect(invocation).toBeGreaterThan(workflow.indexOf('if [[ "$registry_state" == published ]]'));
     expect(workflow).not.toContain('|| true');
-    for (const [tags, succeeds] of [
-      [{ bootstrap: "0.4.0-bootstrap.1" }, true],
-      [{ bootstrap: "0.4.0-bootstrap.2" }, false],
-      [{}, false],
-      [{ latest: "0.3.5" }, true],
-      [{ latest: "0.4.0" }, false],
-      [{ latest: "0.5.0" }, false],
-      [{ latest: "0.4.0-bootstrap.0" }, false],
-      [null, false],
-      [[], false],
-      ["", false],
-    ] as const) {
-      const result = await runWorkflowScript(`node <<'NODE'\n${guard}\nNODE`, { LATEST_JSON: JSON.stringify(tags), EXPECTED_VERSION: "0.4.0" });
-      expect(result.exitCode === 0).toBe(succeeds);
+    expect(workflow.includes('npm view @hraness/soulscrape dist-tags')).toBe(false);
+    const bootstrapVersion = "0.4.0-bootstrap.1";
+    const bootstrap = {
+      name: "@hraness/soulscrape", version: bootstrapVersion,
+      dist: { integrity: "sha512-mzPKNSBBJTlA7y5iEBcaA+Aw+V818UH49+jtQAygjGOPO60GfzF1daMHE8RYdW1+quyswli1H4fnPNmfA93tzw==" },
+    };
+    const metadata = (tags: unknown = { bootstrap: bootstrapVersion }, versions: unknown = { [bootstrapVersion]: bootstrap }) => ({
+      name: "@hraness/soulscrape", "dist-tags": tags, versions,
+    });
+    const stable = (latest: unknown) => metadata({ latest }, typeof latest === "string" ? { [latest]: { name: "@hraness/soulscrape", version: latest } } : {});
+    const cases: { label: string; value: unknown; candidate?: string; succeeds?: true }[] = [
+      { label: "sole bootstrap tag", value: metadata(), succeeds: true },
+      { label: "observed latest alias", value: metadata({ bootstrap: bootstrapVersion, latest: bootstrapVersion }), succeeds: true },
+      { label: "metadata larger than Linux environment value limit", value: { ...metadata(), readme: "x".repeat(150_000) }, succeeds: true },
+      { label: "future candidate cannot reuse bootstrap", value: metadata(), candidate: "0.4.1" },
+      { label: "future candidate cannot reuse latest alias", value: metadata({ bootstrap: bootstrapVersion, latest: bootstrapVersion }), candidate: "0.5.0" },
+      { label: "prerelease candidate", value: metadata(), candidate: bootstrapVersion },
+      { label: "candidate component exceeds npm bound", value: metadata(), candidate: "9007199254740992.0.0" },
+      { label: "no tags", value: metadata({}) },
+      { label: "missing bootstrap tag", value: metadata({ latest: bootstrapVersion }) },
+      { label: "wrong bootstrap tag", value: metadata({ bootstrap: "0.4.0-bootstrap.2" }) },
+      { label: "wrong bootstrap with latest alias", value: metadata({ bootstrap: "0.4.0-bootstrap.2", latest: bootstrapVersion }) },
+      { label: "extra tag", value: metadata({ bootstrap: bootstrapVersion, next: bootstrapVersion }) },
+      { label: "extra tag with latest alias", value: metadata({ bootstrap: bootstrapVersion, latest: bootstrapVersion, next: bootstrapVersion }) },
+      { label: "unreviewed latest prerelease", value: metadata({ bootstrap: bootstrapVersion, latest: "0.4.0-bootstrap.2" }) },
+      { label: "hidden stable", value: metadata(undefined, { [bootstrapVersion]: bootstrap, "0.3.5": { name: "@hraness/soulscrape", version: "0.3.5" } }) },
+      { label: "hidden prerelease", value: metadata({ bootstrap: bootstrapVersion, latest: bootstrapVersion }, { [bootstrapVersion]: bootstrap, "0.4.0-beta.1": { name: "@hraness/soulscrape", version: "0.4.0-beta.1" } }) },
+      { label: "candidate appeared since exact-version read", value: metadata(undefined, { [bootstrapVersion]: bootstrap, "0.4.0": { name: "@hraness/soulscrape", version: "0.4.0" } }) },
+      { label: "no published versions", value: metadata(undefined, {}) },
+      { label: "wrong version key", value: metadata(undefined, { "0.4.0-bootstrap.2": bootstrap }) },
+      { label: "wrong package name", value: { ...metadata(), name: "@hraness/ensoul" } },
+      { label: "missing package name", value: { ...metadata(), name: undefined } },
+      { label: "wrong bootstrap package", value: metadata(undefined, { [bootstrapVersion]: { ...bootstrap, name: "@hraness/ensoul" } }) },
+      { label: "wrong bootstrap record version", value: metadata(undefined, { [bootstrapVersion]: { ...bootstrap, version: "0.4.0-bootstrap.2" } }) },
+      { label: "different archive", value: metadata(undefined, { [bootstrapVersion]: { ...bootstrap, dist: { integrity: "sha512-different" } } }) },
+      { label: "missing archive digest", value: metadata(undefined, { [bootstrapVersion]: { ...bootstrap, dist: {} } }) },
+      { label: "missing dist", value: metadata(undefined, { [bootstrapVersion]: { ...bootstrap, dist: undefined } }) },
+      { label: "null bootstrap record", value: metadata(undefined, { [bootstrapVersion]: null }) },
+      { label: "array bootstrap record", value: metadata(undefined, { [bootstrapVersion]: [] }) },
+      { label: "null metadata", value: null },
+      { label: "array metadata", value: [] },
+      { label: "string metadata", value: "" },
+      { label: "null tags", value: metadata(null) },
+      { label: "array tags", value: metadata([]) },
+      { label: "string tags", value: metadata(bootstrapVersion) },
+      { label: "missing tags", value: { name: "@hraness/soulscrape", versions: {} } },
+      { label: "null versions", value: metadata(undefined, null) },
+      { label: "array versions", value: metadata(undefined, []) },
+      { label: "missing versions", value: { name: "@hraness/soulscrape", "dist-tags": { bootstrap: bootstrapVersion } } },
+      { label: "lower stable latest", value: stable("0.3.5"), succeeds: true },
+      { label: "later ordinary stable candidate", value: stable("0.4.0"), candidate: "0.4.1", succeeds: true },
+      { label: "equal stable latest", value: stable("0.4.0") },
+      { label: "newer stable latest", value: stable("0.5.0") },
+      { label: "invalid latest", value: stable(null) },
+      { label: "noncanonical stable latest", value: stable("00.3.5") },
+      { label: "latest component exceeds npm bound", value: stable("9007199254740992.0.0") },
+    ];
+    const directory = await mkdtemp(join(tmpdir(), "soulscrape-registry-metadata-"));
+    const path = join(directory, "metadata.json");
+    try {
+      for (const fixture of cases) {
+        await writeFile(path, JSON.stringify(fixture.value));
+        const result = await runWorkflowScript(`node <<'NODE'\n${guard}\nNODE`, { REGISTRY_JSON: path, EXPECTED_VERSION: fixture.candidate ?? "0.4.0" });
+        expect({ label: fixture.label, succeeds: result.exitCode === 0 }).toEqual({ label: fixture.label, succeeds: fixture.succeeds ?? false });
+      }
+      await writeFile(path, "{malformed");
+      expect((await runWorkflowScript(`node <<'NODE'\n${guard}\nNODE`, { REGISTRY_JSON: path, EXPECTED_VERSION: "0.4.0" })).exitCode).not.toBe(0);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("npm inventory fetch requires bounded uncached full metadata from the fixed registry", async () => {
+    const workflow = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+    const start = workflow.indexOf('          const response = await fetch("https://registry.npmjs.org/%40hraness%2Fsoulscrape",');
+    const end = workflow.indexOf("\n          NODE", start);
+    expect(start).toBeGreaterThan(0);
+    const fetchScript = workflow.slice(start, end).split("\n").map(line => line.slice(10)).join("\n");
+    for (const fixture of [
+      { status: 200, succeeds: true },
+      { status: 404, succeeds: false },
+      { status: 500, succeeds: false },
+      { status: 302, succeeds: false },
+      { status: 200, large: true, succeeds: false },
+      { status: 200, networkFailure: true, succeeds: false },
+    ]) {
+      const mockedFetch = `
+        const fixture = ${JSON.stringify(fixture)};
+        globalThis.fetch = async (url, options) => {
+          if (url !== "https://registry.npmjs.org/%40hraness%2Fsoulscrape"
+            || options.cache !== "no-store" || options.redirect !== "error"
+            || !(options.signal instanceof AbortSignal)
+            || options.headers.Accept !== "application/json"
+            || options.headers["Cache-Control"] !== "no-cache") throw new Error("Invalid metadata request");
+          if (fixture.networkFailure) throw new Error("Simulated transport failure");
+          return { status: fixture.status, text: async () => fixture.large ? "x".repeat(5_000_001) : '{"name":"@hraness/soulscrape"}' };
+        };
+      `;
+      const result = await runWorkflowScript(`node --input-type=module <<'NODE'\n${mockedFetch}\n${fetchScript}\nNODE`, {});
+      expect(result.exitCode === 0).toBe(fixture.succeeds);
+      if (fixture.succeeds) expect(result.stdout).toBe('{"name":"@hraness/soulscrape"}');
     }
   });
 
