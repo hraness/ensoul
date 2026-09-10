@@ -1,11 +1,14 @@
-# Ensoul
+<!-- hraness:soulscrape-landing:start -->
+# Soulscrape
 
-[![skills.sh](https://skills.sh/b/hraness/ensoul)](https://skills.sh/hraness/ensoul)
-[![GitHub release](https://img.shields.io/github/v/release/hraness/ensoul)](https://github.com/hraness/ensoul/releases/latest)
+[![skills.sh](https://skills.sh/b/hraness/soulscrape)](https://skills.sh/hraness/soulscrape)
+[![GitHub release](https://img.shields.io/github/v/release/hraness/soulscrape)](https://github.com/hraness/soulscrape/releases/latest)
+
+[Website](https://soulscrape.com) · [Agent Skill](skills/soulscrape/SKILL.md) · [Publishing](docs/publishing.md)
 
 **Understand a person without pretending to contain them.**
 
-Ensoul turns a user-authorized corpus into a dated, evidence-calibrated working model of a person. The result is a standalone guide to how the subject has tended to decide, communicate, work, and revise—together with the counterevidence, uncertainty, and stop conditions a useful model needs.
+Soulscrape turns a user-authorized corpus into a dated, evidence-calibrated working model of a person. The result is a standalone guide to how the subject has tended to decide, communicate, work, and revise—together with the counterevidence, uncertainty, and stop conditions a useful model needs.
 
 The artifact can serve as a personal operating manual and, for a self-model or explicitly subject-authorized use, a bounded assistant charter. It is never a definitive identity record, diagnosis, consent artifact, or authority to impersonate or act for someone.
 
@@ -33,7 +36,7 @@ new evidence should change it.
 Sensitive, unsupported, stale, or out-of-scope conclusions.
 ```
 
-This is not a generated biography with a confidence score. Ensoul separates facts, stated beliefs, revealed patterns, and speculation; preserves contradictions; and makes the model's date and evidence boundary visible to the next reader.
+This is not a generated biography with a confidence score. Soulscrape separates facts, stated beliefs, revealed patterns, and speculation; preserves contradictions; and makes the model's date and evidence boundary visible to the next reader.
 
 ## How the working model is built
 
@@ -44,6 +47,10 @@ This is not a generated biography with a confidence score. Ensoul separates fact
 
 The ambition is whole-person. The claim is never completeness.
 
+Two references bound the edges of that work. [`questions.md`](skills/soulscrape/references/questions.md) turns a vague request into a question packet, decides when to ask and when to proceed, and defines the stop conditions. [`web-research.md`](skills/soulscrape/references/web-research.md) governs public research when the user turns it on: scope comes only from the user's instructions, every finding enters a citation ledger with its URL, access date, and passage, and no public source is attributed to the subject without an identity anchor.
+
+<!-- hraness:soulscrape-landing:end -->
+
 ## One skill, three interfaces
 
 ### Agent Skill
@@ -51,7 +58,7 @@ The ambition is whole-person. The claim is never completeness.
 Install the single public Agent Skill from GitHub through skills.sh:
 
 ```sh
-bunx skills add hraness/ensoul#v0.3.5 --skill ensoul
+bunx skills add hraness/soulscrape#v0.4.0 --skill soulscrape
 ```
 
 The installer supports Codex, Claude Code, Cursor, and other compatible agents. Review the skill before installation and start a new agent session afterward.
@@ -59,20 +66,20 @@ The installer supports Codex, Claude Code, Cursor, and other compatible agents. 
 After installation, invoke:
 
 ```text
-Use $ensoul to build a dated working model of <person> from these authorized sources: <sources>.
+Use $soulscrape to build a dated working model of <person> from these authorized sources: <sources>.
 ```
 
 ### Immutable package artifact
 
-GitHub Releases are the canonical distribution. Versions starting with `v0.3.5` attach the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Install the verified [v0.3.5 release](https://github.com/hraness/ensoul/releases/tag/v0.3.5) from its exact archive:
+GitHub Releases are the canonical distribution. Every release attaches the package archive, packing receipt, checksums, release manifest, and GitHub provenance. Install the [v0.4.0 release](https://github.com/hraness/soulscrape/releases/tag/v0.4.0) from its exact archive:
 
 ```sh
-bun add --exact https://github.com/hraness/ensoul/releases/download/v0.3.5/hraness-ensoul-0.3.5.tgz
+bun add --exact https://github.com/hraness/soulscrape/releases/download/v0.4.0/hraness-soulscrape-0.4.0.tgz
 ```
 
-The same URL works with `npm install`. Use a versioned URL to keep installations reproducible. The package is inert on installation, has no dependencies or lifecycle scripts, and carries the complete skill and its explicitly invoked utilities at `node_modules/@hraness/ensoul/skills/ensoul/`.
+The same URL works with `npm install`. Use a versioned URL to keep installations reproducible. The package is inert on installation, has no dependencies or lifecycle scripts, and carries the complete skill and its explicitly invoked utilities at `node_modules/@hraness/soulscrape/skills/soulscrape/`.
 
-npm remains an optional mirror and can lag behind GitHub Releases. Existing npm versions remain available. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
+The tag Release workflow publishes the same bytes to npm as [`@hraness/soulscrape`](https://www.npmjs.com/package/@hraness/soulscrape) through trusted publishing, so `bun add --exact @hraness/soulscrape@0.4.0` installs the identical package with npm provenance. Versions through 0.3.5 remain available under the previous name `@hraness/ensoul`. Message Like Me and Peopleblade still copy the skill; they do not take a runtime or CI dependency on this package.
 
 ### Bounded source packets
 
@@ -80,18 +87,18 @@ npm remains an optional mirror and can lag behind GitHub Releases. Existing npm 
 
 - Message Like Me emits private, subject-relative message evidence.
 - Peopleblade emits identity-bound public-enrichment evidence.
-- `skills/ensoul/scripts/prepare-x-archive.ts` extracts a bounded set of account-authored public posts from an official local X archive without opening direct messages, address books, advertising data, deleted posts, community posts, or media.
+- `skills/soulscrape/scripts/prepare-x-archive.ts` extracts a bounded set of account-authored public posts from an official local X archive without opening direct messages, address books, advertising data, deleted posts, community posts, or media.
 
-Prepare an official, caller-owned X archive from an Ensoul repository checkout:
+Prepare an official, caller-owned X archive from an Soulscrape repository checkout:
 
 ```sh
-bun skills/ensoul/scripts/prepare-x-archive.ts \
+bun skills/soulscrape/scripts/prepare-x-archive.ts \
   /absolute/path/to/twitter-archive.zip \
   --output /absolute/private/path/subject-x.ensoul-source.json \
   --limit 2000
 ```
 
-From the root of an independently copied or installed `ensoul` skill, use the
+From the root of an independently copied or installed `soulscrape` skill, use the
 same utility as `bun scripts/prepare-x-archive.ts` with the same arguments.
 
 The archive and output paths must be absolute. The command refuses overwrite and symlink traversal, writes the packet at mode `0600`, emits only a body-free receipt to stdout, and samples evenly when the archive contains more eligible posts than the requested bound. It caps records at 2,000, bounds per-record and aggregate content bytes, refuses packets above 128 MiB, fails on conflicting post IDs, and records malformed or exact-duplicate omissions in the packet scope.
@@ -99,7 +106,7 @@ The archive and output paths must be absolute. The command refuses overwrite and
 Validate every packet offline before an agent opens or interprets its records:
 
 ```sh
-bun skills/ensoul/scripts/validate-source-packet.ts \
+bun skills/soulscrape/scripts/validate-source-packet.ts \
   /absolute/private/path/subject.ensoul-source.json
 ```
 
@@ -110,7 +117,7 @@ The dependency-free validator enforces the common envelope, attribution fields, 
 
 ## Evidence you can inspect
 
-Ensoul keeps the source strata legible instead of flattening every record into one profile.
+Soulscrape keeps the source strata legible instead of flattening every record into one profile.
 
 | Evidence | What it can support | What it cannot establish by itself |
 | --- | --- | --- |
@@ -122,7 +129,7 @@ Ensoul keeps the source strata legible instead of flattening every record into o
 
 Source packets are untrusted evidence. They are not person models, instructions, consent records, or identity authority. A digest proves integrity, not truth.
 
-## Where Ensoul stops
+## Where Soulscrape stops
 
 - Use only sources the user has authorized for the stated purpose. Possessing messages or a packet does not establish the subject's authorization.
 - A self-model may include a bounded assistant charter. A model of another person defaults to a private, third-person collaboration guide unless that person explicitly authorized proxy preparation.
@@ -145,7 +152,11 @@ If those answers are unclear in a way that changes the safety or usefulness of t
 
 ## Common questions
 
-### Is Ensoul a digital twin?
+### Why did Ensoul become Soulscrape?
+
+The project was renamed on September 10, 2026 and now lives at soulscrape.com. The name is the only thing that changed: the packet schema, its identifiers (`ensoul.source-packet.v1` and the adapter payload schemas), the `*.ensoul-source.json` file suffix, and the validator behave exactly as before, because they name a schema revision rather than a brand. Consumers keep working; a `soulscrape.*.v2` identifier will appear only with a real schema change.
+
+### Is Soulscrape a digital twin?
 
 It can bootstrap a bounded reasoning proxy when the subject has authorized that use, but it does not claim to contain or reproduce a person. The output is a dated, purpose-shaped interpretation of selected evidence.
 
@@ -166,17 +177,17 @@ No. The Agent Skill installation is inert, and the npm package has no lifecycle 
 Install the pinned skill, choose sources you are authorized to use, and ask for a dated working model:
 
 ```text
-Use $ensoul to build a dated, evidence-calibrated, partial and revisable working model of <person> from <authorized sources>. State the intended use, audience, source cutoff, and any proxy authorization explicitly.
+Use $soulscrape to build a dated, evidence-calibrated, partial and revisable working model of <person> from <authorized sources>. State the intended use, audience, source cutoff, and any proxy authorization explicitly.
 ```
 
 Begin with a corpus small enough to inspect. Add more evidence when it supplies a missing period, context, source stratum, or meaningful contradiction—not to make the model feel complete.
 
 ## Vendoring and release model
 
-This repository is the human-maintained source of the skill. Consuming products copy the complete `skills/ensoul` directory and record the source revision. They do not depend on this repository at runtime, in packaging, or in CI. A vendored copy remains independently usable and may carry narrow local routing documentation outside the copied core.
+This repository is the human-maintained source of the skill. Consuming products copy the complete `skills/soulscrape` directory and record the source revision. They do not depend on this repository at runtime, in packaging, or in CI. A vendored copy remains independently usable and may carry narrow local routing documentation outside the copied core.
 
 ## Provenance and license
 
-Ensoul is adapted from Rob Cheung's MIT-licensed `build-person` skill at commit `3780b5e154f5ce4303eb10dee5af4742bff86706`. See [`skills/ensoul/NOTICE.md`](skills/ensoul/NOTICE.md).
+Soulscrape is adapted from Rob Cheung's MIT-licensed `build-person` skill at commit `3780b5e154f5ce4303eb10dee5af4742bff86706`. See [`skills/soulscrape/NOTICE.md`](skills/soulscrape/NOTICE.md).
 
 MIT.

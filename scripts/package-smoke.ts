@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-/** Verify one exact Ensoul npm tarball without trusting package scripts. */
+/** Verify one exact Soulscrape npm tarball without trusting package scripts. */
 
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -14,24 +14,25 @@ const MAXIMUM_UNPACKED_BYTES = 2 * 1024 * 1024;
 const USTAR_SIGNATURE = Buffer.from([0x75, 0x73, 0x74, 0x61, 0x72, 0x00, 0x30, 0x30]);
 
 export const EXPECTED_PATHS = new Set([
-  "DISCLOSURE",
   "LICENSE",
   "README.md",
   "VERSION",
   "package.json",
   "schema/ensoul-source-packet-v1.schema.json",
-  "skills/ensoul/agents/openai.yaml",
-  "skills/ensoul/LICENSE",
-  "skills/ensoul/NOTICE.md",
-  "skills/ensoul/references/ensoul-source-packet-v1.schema.json",
-  "skills/ensoul/references/evidence-method.md",
-  "skills/ensoul/references/output-blueprint.md",
-  "skills/ensoul/references/source-packets.md",
-  "skills/ensoul/scripts/prepare-x-archive.ts",
-  "skills/ensoul/scripts/source-packet.ts",
-  "skills/ensoul/scripts/validate-source-packet.ts",
-  "skills/ensoul/scripts/x-zip-file.ts",
-  "skills/ensoul/SKILL.md",
+  "skills/soulscrape/agents/openai.yaml",
+  "skills/soulscrape/LICENSE",
+  "skills/soulscrape/NOTICE.md",
+  "skills/soulscrape/references/ensoul-source-packet-v1.schema.json",
+  "skills/soulscrape/references/evidence-method.md",
+  "skills/soulscrape/references/output-blueprint.md",
+  "skills/soulscrape/references/questions.md",
+  "skills/soulscrape/references/source-packets.md",
+  "skills/soulscrape/references/web-research.md",
+  "skills/soulscrape/scripts/prepare-x-archive.ts",
+  "skills/soulscrape/scripts/source-packet.ts",
+  "skills/soulscrape/scripts/validate-source-packet.ts",
+  "skills/soulscrape/scripts/x-zip-file.ts",
+  "skills/soulscrape/SKILL.md",
 ]);
 
 type PackFile = Readonly<{ mode: number; path: string; size: number }>;
@@ -217,7 +218,7 @@ export function verifyArchive(archivePath: string, record: PackRecord): string {
   if (!equalSets(new Set(byPath.keys()), EXPECTED_PATHS)) fail("npm archive inventory differs from the npm pack receipt");
 
   let unpackedBytes = 0;
-  const payloadDigest = createHash("sha256").update("ensoul-package-payload-v1\0");
+  const payloadDigest = createHash("sha256").update("soulscrape-package-payload-v1\0");
   for (const path of [...byPath.keys()].sort()) {
     const entry = byPath.get(path)!;
     const file = reported.get(path)!;
@@ -265,7 +266,7 @@ function regularFiles(root: string): string[] {
 }
 
 export function verifyCleanInstall(archivePath: string): void {
-  const temporaryRoot = mkdtempSync(join(tmpdir(), "ensoul-package-smoke-"));
+  const temporaryRoot = mkdtempSync(join(tmpdir(), "soulscrape-package-smoke-"));
   try {
     const consumer = join(temporaryRoot, "consumer");
     mkdirSync(consumer);
@@ -278,8 +279,8 @@ export function verifyCleanInstall(archivePath: string): void {
       stderr: "pipe",
     });
     if (process_.exitCode !== 0) fail(`clean Bun install failed: ${process_.stderr.toString().trim()}`);
-    const installedRoot = join(consumer, "node_modules", "@hraness", "ensoul");
-    for (const relativeRoot of ["skills/ensoul", "schema"]) {
+    const installedRoot = join(consumer, "node_modules", "@hraness", "soulscrape");
+    for (const relativeRoot of ["skills/soulscrape", "schema"]) {
       const sourceRoot = join(ROOT, relativeRoot);
       const installed = join(installedRoot, relativeRoot);
       const sourceNames = regularFiles(sourceRoot);

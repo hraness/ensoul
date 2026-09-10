@@ -9,10 +9,10 @@ import {
 } from "../scripts/github-release.ts";
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "ensoul-canonical-test-"));
+  const root = mkdtempSync(join(tmpdir(), "soulscrape-canonical-test-"));
   const dir = join(root, "assets"); mkdirSync(dir);
   const archive = Buffer.from("exact tested source archive fixture");
-  const m: Manifest = {schema:"hraness-github-release-v1",repository:"hraness/ensoul",repositoryId:1350294135,package:"@hraness/ensoul",version:"0.3.3",tag:"v0.3.3",sourceSha:"a".repeat(40),workflow:".github/workflows/release.yml",workflowSha:"b".repeat(40),runId:12345,runAttempt:1,archive:{name:"hraness-ensoul-0.3.3.tgz",bytes:archive.length,sha256:digest(archive),sha512:digest(archive,"sha512")}};
+  const m: Manifest = {schema:"hraness-github-release-v1",repository:"hraness/soulscrape",repositoryId:1350294135,package:"@hraness/soulscrape",version:"0.3.3",tag:"v0.3.3",sourceSha:"a".repeat(40),workflow:".github/workflows/release.yml",workflowSha:"b".repeat(40),runId:12345,runAttempt:1,archive:{name:"hraness-soulscrape-0.3.3.tgz",bytes:archive.length,sha256:digest(archive),sha512:digest(archive,"sha512")}};
   writeFileSync(join(dir,m.archive.name),archive);
   writeFileSync(join(dir,"npm-pack.json"),JSON.stringify([{name:m.package,version:m.version,filename:m.archive.name,size:archive.length,shasum:digest(archive,"sha1"),integrity:`sha512-${createHash("sha512").update(archive).digest("base64")}`}])+"\n");
   writeFileSync(join(dir,"release-manifest.json"),JSON.stringify(m)+"\n");
@@ -20,11 +20,11 @@ function fixture() {
   writeFileSync(join(dir,"provenance.jsonl"),'{"fixture":"verified only by mocked gh"}\n');
   const subjects=Object.fromEntries(assetNames(m).slice(0,4).map(name=>[name,digest(readFileSync(join(dir,name)))]));
   const workflowUri=`https://github.com/${m.repository}/${m.workflow}@refs/tags/${m.tag}`;
-  const certificate={buildConfigURI:workflowUri,buildSignerURI:workflowUri,issuer:"https://token.actions.githubusercontent.com",runnerEnvironment:"github-hosted",sourceRepositoryURI:"https://github.com/hraness/ensoul",sourceRepositoryIdentifier:String(m.repositoryId),sourceRepositoryDigest:m.sourceSha,sourceRepositoryRef:`refs/tags/${m.tag}`,buildSignerDigest:m.sourceSha,buildConfigDigest:m.sourceSha,buildTrigger:"push",runInvocationURI:`https://github.com/hraness/ensoul/actions/runs/${m.runId}/attempts/${m.runAttempt}`};
+  const certificate={buildConfigURI:workflowUri,buildSignerURI:workflowUri,issuer:"https://token.actions.githubusercontent.com",runnerEnvironment:"github-hosted",sourceRepositoryURI:"https://github.com/hraness/soulscrape",sourceRepositoryIdentifier:String(m.repositoryId),sourceRepositoryDigest:m.sourceSha,sourceRepositoryRef:`refs/tags/${m.tag}`,buildSignerDigest:m.sourceSha,buildConfigDigest:m.sourceSha,buildTrigger:"push",runInvocationURI:`https://github.com/hraness/soulscrape/actions/runs/${m.runId}/attempts/${m.runAttempt}`};
   const verified=[{verificationResult:{signature:{certificate},statement:{_type:"https://in-toto.io/Statement/v1",predicateType:"https://slsa.dev/provenance/v1",predicate:{buildDefinition:{buildType:"https://actions.github.io/buildtypes/workflow/v1",externalParameters:{workflow:{repository:`https://github.com/${m.repository}`,path:m.workflow,ref:`refs/tags/${m.tag}`}},internalParameters:{github:{repository_id:m.repositoryId,repository_owner_id:307125679,event_name:"push",runner_environment:"github-hosted"}},resolvedDependencies:[{uri:`git+https://github.com/${m.repository}@refs/tags/${m.tag}`,digest:{gitCommit:m.sourceSha}}]},runDetails:{builder:{id:workflowUri},metadata:{invocationId:`https://github.com/${m.repository}/actions/runs/${m.runId}/attempts/${m.runAttempt}`}}},subject:Object.entries(subjects).map(([name,sha256])=>({name,digest:{sha256}}))}}}];
   const attempt={id:m.runId,run_attempt:m.runAttempt,workflow_id:345387950,name:"release",path:m.workflow,event:"push",head_branch:m.tag,head_sha:m.sourceSha,status:"in_progress",conclusion:null,actor:{id:894119,type:"User"},triggering_actor:{id:894119,type:"User"},repository:{id:m.repositoryId,full_name:m.repository,private:false}};
   const assets=assetNames(m).map((name,i)=>({id:100+i,name,state:"uploaded",size:readFileSync(join(dir,name)).length,digest:`sha256:${digest(readFileSync(join(dir,name)))}`}));
-  const release={id:77,tag_name:m.tag,name:`Ensoul ${m.tag}`,body:releaseBody(m),target_commitish:m.sourceSha,prerelease:false,draft:false,immutable:true,author:{id:41898282,login:"github-actions[bot]",type:"Bot"},assets};
+  const release={id:77,tag_name:m.tag,name:`Soulscrape ${m.tag}`,body:releaseBody(m),target_commitish:m.sourceSha,prerelease:false,draft:false,immutable:true,author:{id:41898282,login:"github-actions[bot]",type:"Bot"},assets};
   return {root,dir,m,subjects,verified,attempt,release,cleanup:()=>rmSync(root,{recursive:true,force:true})};
 }
 
@@ -110,8 +110,8 @@ if(args[0]==='attestation'){
   if(!args.includes('--deny-self-hosted-runners')||process.env.MOCK_PROVENANCE_FAILURE==='true') fail('Provenance verification failed');
   output(f.verified);
 }else if(args[0]==='api'){
-  const endpoint=args.find(a=>a.startsWith('/repos/hraness/ensoul'));
-  if(endpoint==='/repos/hraness/ensoul/releases'&&args.includes('POST')){
+  const endpoint=args.find(a=>a.startsWith('/repos/hraness/soulscrape'));
+  if(endpoint==='/repos/hraness/soulscrape/releases'&&args.includes('POST')){
     if(fs.existsSync(state))fail('Draft must not be recreated');
     const field=name=>args.find(a=>a.startsWith(name+'='))?.slice(name.length+1);
     if(field('draft')!=='true'||field('prerelease')!=='false')fail('Invalid draft create');
@@ -126,7 +126,7 @@ if(args[0]==='attestation'){
     else if(process.env.MOCK_RELEASE_PAGE==='2'&&page===1)output(Array.from({length:100},(_,i)=>({id:1000+i,tag_name:'unrelated-'+i})));
     else output(current&&process.env.MOCK_POST_CREATE_HIDDEN!=='true'?[current]:[]);
   }
-  else if(endpoint==='/repos/hraness/ensoul/releases/77'){const release=read();output(process.env.MOCK_RELEASE_ID_DRIFT==='true'?{...release,id:78}:release);}
+  else if(endpoint==='/repos/hraness/soulscrape/releases/77'){const release=read();output(process.env.MOCK_RELEASE_ID_DRIFT==='true'?{...release,id:78}:release);}
   else if(endpoint.endsWith('/releases/latest'))output(fs.existsSync(state)&&read().draft===false?read():{id:66,tag_name:process.env.MOCK_LATEST||'v0.3.2',draft:false,prerelease:false,immutable:true});
   else if(endpoint.includes('/releases/assets/')){const id=Number(endpoint.split('/').at(-1));const a=read().assets.find(a=>a.id===id);process.stdout.write(fs.readFileSync(path.join(root,'assets',a.name)));}
   else if(endpoint.endsWith('/attempts/1'))output(f.attempt);
@@ -135,7 +135,7 @@ if(args[0]==='attestation'){
   else if(endpoint.includes('/git/tags/'))output({object:{type:'commit',sha:process.env.MOCK_MOVED_TAG==='true'?'e'.repeat(40):f.manifest.sourceSha}});
   else if(endpoint.endsWith('/commits/main'))output({sha:f.manifest.workflowSha});
   else if(endpoint.includes('/compare/'))output({status:process.env.MOCK_UNREACHABLE_SOURCE==='true'?'diverged':'ahead'});
-  else if(endpoint==='/repos/hraness/ensoul')output({id:f.manifest.repositoryId,full_name:f.manifest.repository,private:false,visibility:'public',default_branch:'main'});
+  else if(endpoint==='/repos/hraness/soulscrape')output({id:f.manifest.repositoryId,full_name:f.manifest.repository,private:false,visibility:'public',default_branch:'main'});
   else fail('Unexpected API '+endpoint);
 }else if(args[0]==='release'){
   if(args.includes('--clobber')||args.includes('delete'))fail('Destructive operation');

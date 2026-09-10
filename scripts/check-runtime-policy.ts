@@ -6,7 +6,7 @@ import { join, relative, resolve, sep } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const SELF = resolve(import.meta.path);
-const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".turbo", "coverage", "dist"]);
+const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".turbo", ".next", ".vercel", "coverage", "dist"]);
 const FORBIDDEN_FILE = /\.(?:py|pyc|pyo)$/iu;
 const FORBIDDEN_REFERENCE = /(?:actions\/setup-python|\bpython(?:3(?:\.\d+)?)?\b|\.py(?:\b|$))/iu;
 

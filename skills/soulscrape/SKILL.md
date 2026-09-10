@@ -1,9 +1,9 @@
 ---
-name: ensoul
-description: Turn a user-authorized corpus into a dated, evidence-calibrated, explicitly partial and revisable whole-person working model. Use when Claude Code, Codex, or another compatible agent is asked to understand, capture, or reconstruct a person; create a personal operating manual, master document, digital-twin or proxy bootstrap; extract worldview, values, taste, communication style, decisions, tensions, or tacit patterns; enrich a person with public research; or combine structured Ensoul source packets from Peopleblade or Message Like Me with notes, messages, posts, documents, repositories, and other evidence.
+name: soulscrape
+description: Turn a user-authorized corpus into a dated, evidence-calibrated, explicitly partial and revisable whole-person working model. Use when Claude Code, Codex, or another compatible agent is asked to understand, capture, or reconstruct a person; create a personal operating manual, master document, digital-twin or proxy bootstrap; extract worldview, values, taste, communication style, decisions, tensions, or tacit patterns; enrich a person with public research; or combine structured Soulscrape source packets from Peopleblade or Message Like Me with notes, messages, posts, documents, repositories, and other evidence.
 ---
 
-# Ensoul
+# Soulscrape
 
 Turn only the evidence the user authorizes into a dated, standalone working model of a person. Recover explicit facts and tacit patterns without flattening the subject into a resume, work persona, archetype, personality score, or supposedly complete identity record.
 
@@ -26,7 +26,7 @@ Treat the output as a purpose-shaped interpretation of a bounded corpus, not a d
 
 ## Default output
 
-Produce one new Markdown document unless the user requests another format. Use a descriptive filename such as `<person>-ensoul.md` and return its full path.
+Produce one new Markdown document unless the user requests another format. Use a descriptive filename such as `<person>-soulscrape.md` and return its full path.
 
 Scale the document to the evidence. For a rich longitudinal corpus with several independent source strata, roughly 4,000-8,000 useful words can be appropriate. Length is an outcome, not a target. With fewer than three independent source strata or fewer than 2,000 source words, use only the space supported claims require—often 300-1,500 words and sometimes less. Do not add a section to approach a lower bound or manufacture breadth.
 
@@ -37,6 +37,8 @@ Open with a prominent epistemic-status block stating that the document is partia
 ## Workflow
 
 ### 1. Establish authority and scope
+
+Read [references/questions.md](references/questions.md) completely before deciding whether to ask or proceed. Turn a vague request into a question packet, then ask only for what changes the result.
 
 Use the user's supplied corpus, public sources they request, and local sources they explicitly place in scope. Make reasonable assumptions about output location and format.
 
@@ -56,6 +58,8 @@ Ask only when a missing choice would materially change the result, such as when:
 - the output is meant for a public audience and privacy boundaries are unclear.
 
 Do not browse for personal information by default. Browse when the user asks, when a supplied URL must be opened, or when a time-sensitive public fact needs verification. Keep public web evidence distinct from private and supplied evidence.
+
+When web research is in scope, read [references/web-research.md](references/web-research.md) completely and follow it: scope comes only from the user's instructions, every public finding enters the citation ledger with its URL, access date, passage, and identity-binding status, and no public source is attributed to the subject without an explicit anchor.
 
 Use format-specific skills when needed to read PDFs, documents, sheets, slides, images, audio, or video. Extract faithfully before interpreting.
 

@@ -1,24 +1,21 @@
 {
-  "name": "@hraness/ensoul",
-  "version": "0.3.5",
-  "description": "Turn an authorized corpus into a dated, evidence-calibrated working model of a person with explicit privacy and proxy boundaries.",
+  "name": "@hraness/soulscrape",
+  "version": "0.4.0",
+  "description": "Turn an authorized corpus into a dated, evidence-calibrated working model of a person, with an asking protocol, instruction-bound web research, and explicit privacy and proxy boundaries.",
   "license": "MIT",
   "type": "module",
   "private": false,
-  "contentPolicy": {
-    "class": "dual-use"
-  },
   "packageManager": "bun@1.3.14",
   "engines": {
     "bun": ">=1.3.14"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hraness/ensoul.git"
+    "url": "git+https://github.com/hraness/soulscrape.git"
   },
-  "homepage": "https://skills.sh/hraness/ensoul/ensoul",
+  "homepage": "https://soulscrape.com",
   "bugs": {
-    "url": "https://github.com/hraness/ensoul/issues"
+    "url": "https://github.com/hraness/soulscrape/issues"
   },
   "keywords": [
     "agent-skill",
@@ -32,28 +29,30 @@
     "privacy",
     "codex",
     "claude-code",
-    "cursor"
+    "cursor",
+    "soulscrape",
+    "web-research"
   ],
   "files": [
-    "DISCLOSURE",
     "LICENSE",
     "README.md",
     "VERSION",
     "schema",
-    "skills/ensoul/agents",
-    "skills/ensoul/LICENSE",
-    "skills/ensoul/NOTICE.md",
-    "skills/ensoul/references",
-    "skills/ensoul/scripts/*.ts",
-    "skills/ensoul/SKILL.md"
+    "skills/soulscrape/agents",
+    "skills/soulscrape/LICENSE",
+    "skills/soulscrape/NOTICE.md",
+    "skills/soulscrape/references",
+    "skills/soulscrape/scripts/*.ts",
+    "skills/soulscrape/SKILL.md"
   ],
   "scripts": {
-    "test": "bun test",
+    "test": "bun test ./tests",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "check:runtime-policy": "bun scripts/check-runtime-policy.ts",
     "check:schema": "bun -e 'JSON.parse(await Bun.file(\"schema/ensoul-source-packet-v1.schema.json\").text())'",
     "check:package": "bun scripts/check-package.ts",
-    "check": "bun run typecheck && bun run test && bun run check:runtime-policy && bun run check:schema && bun run check:package"
+    "check": "bun run typecheck && bun run test && bun run check:runtime-policy && bun run check:schema && bun run check:package",
+    "check:site": "cd site && bun install --frozen-lockfile --ignore-scripts && bun run check"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",

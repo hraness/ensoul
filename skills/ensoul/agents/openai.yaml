@@ -1,4 +1,0 @@
-interface:
-  display_name: "Ensoul"
-  short_description: "Turn authorized sources into a calibrated person model"
-  default_prompt: "Use $ensoul to synthesize a dated, evidence-calibrated, partial and revisable working model of this person from the authorized corpus."
