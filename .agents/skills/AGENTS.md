@@ -6,8 +6,8 @@
 
 # Guidelines
 
-- Keep portable repository-support workflows under `.agents/skills/`; keep the single canonical public Ensoul skill under `skills/ensoul/`.
-- Mark every repository-support skill with `metadata.internal: true` so public `skills add hraness/ensoul` discovery exposes only Ensoul.
+- Keep portable repository-support workflows under `.agents/skills/`; keep the single canonical public Soulscrape skill under `skills/soulscrape/`.
+- Mark every repository-support skill with `metadata.internal: true` so public `skills add hraness/soulscrape` discovery exposes only Soulscrape.
 - Keep the five orchestration skills installed and reviewed as one interoperable pack.
 - Preserve the pinned upstream provenance and MIT license under `phase-orchestrator/`.
 - Defer repository commands, validation, version control, and delivery policy to the repository's checked workflows.

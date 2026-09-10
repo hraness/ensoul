@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { main as smoke } from "./package-smoke.ts";
 
 function main(): void {
-  const temporary = mkdtempSync(join(tmpdir(), "ensoul-package-check-"));
+  const temporary = mkdtempSync(join(tmpdir(), "soulscrape-package-check-"));
   try {
     const packed = Bun.spawnSync({
       cmd: [

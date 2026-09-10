@@ -7,12 +7,12 @@ import {
   MAX_RECORD_CONTENT_BYTES,
   boundedContent,
   main,
-} from "../skills/ensoul/scripts/prepare-x-archive.ts";
-import { canonicalBytes, sha256Hex, strictJsonParse } from "../skills/ensoul/scripts/source-packet.ts";
+} from "../skills/soulscrape/scripts/prepare-x-archive.ts";
+import { canonicalBytes, sha256Hex, strictJsonParse } from "../skills/soulscrape/scripts/source-packet.ts";
 import {
   validateSourcePacket,
   validateSourcePacketFile,
-} from "../skills/ensoul/scripts/validate-source-packet.ts";
+} from "../skills/soulscrape/scripts/validate-source-packet.ts";
 import { assignment, zipFixture } from "./x-archive-fixture.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 function temporary(): string {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "ensoul-x-test-")));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "soulscrape-x-test-")));
   temporaries.push(directory);
   return directory;
 }
@@ -113,7 +113,7 @@ function redigest(packet: Record<string, any>, records = false): void {
 describe("X archive packet preparation", () => {
   test("vendored schema matches the canonical schema", () => {
     expect(readFileSync(join(ROOT, "schema/ensoul-source-packet-v1.schema.json")))
-      .toEqual(readFileSync(join(ROOT, "skills/ensoul/references/ensoul-source-packet-v1.schema.json")));
+      .toEqual(readFileSync(join(ROOT, "skills/soulscrape/references/ensoul-source-packet-v1.schema.json")));
   });
 
   test("builds a bounded packet without reading private archive members", () => {
@@ -227,7 +227,7 @@ describe("standalone source-packet validator", () => {
     const output = join(directory, "packet.json");
     expect(run(writeArchive(directory), output)).toBe(0);
     const scriptDirectory = join(directory, "scripts");
-    cpSync(join(ROOT, "skills/ensoul/scripts"), scriptDirectory, { recursive: true });
+    cpSync(join(ROOT, "skills/soulscrape/scripts"), scriptDirectory, { recursive: true });
     const before = readdirSync(scriptDirectory).sort();
     const result = Bun.spawnSync({
       cmd: [process.execPath, join(scriptDirectory, "validate-source-packet.ts"), output],

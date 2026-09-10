@@ -1,0 +1,8 @@
+{
+  "package": "@hraness/ensoul",
+  "skill": "ensoul",
+  "version": "0.3.5",
+  "releaseUrl": "https://github.com/hraness/ensoul/releases/tag/v0.3.5",
+  "archiveUrl": "https://github.com/hraness/ensoul/releases/download/v0.3.5/hraness-ensoul-0.3.5.tgz",
+  "skillInstall": "bunx skills add hraness/ensoul#v0.3.5 --skill ensoul"
+}

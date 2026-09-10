@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Soulscrape">
+  <rect width="64" height="64" rx="14" fill="#5b3a6e"/>
+  <path d="M16 40c0-8 7-10 14-11s12-3 12-9c0-5-4-8-10-8-5 0-9 2-11 5" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M48 24c0 8-7 10-14 11s-12 3-12 9c0 5 4 8 10 8 5 0 9-2 11-5" fill="none" stroke="#f2c7e6" stroke-width="5" stroke-linecap="round"/>
+</svg>

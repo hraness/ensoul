@@ -6,7 +6,7 @@ import { lstatSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPOSITORY = "hraness/ensoul";
+const REPOSITORY = "hraness/soulscrape";
 const REPOSITORY_ID = 1350294135;
 const WORKFLOW_ID = 345387950;
 const WORKFLOW = ".github/workflows/release.yml";
@@ -17,7 +17,7 @@ const VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
 type Json = Record<string, any>;
 export type Manifest = {
   schema: "hraness-github-release-v1"; repository: typeof REPOSITORY;
-  repositoryId: typeof REPOSITORY_ID; package: "@hraness/ensoul";
+  repositoryId: typeof REPOSITORY_ID; package: "@hraness/soulscrape";
   version: string; tag: string; sourceSha: string; workflow: typeof WORKFLOW;
   workflowSha: string; runId: number; runAttempt: number;
   archive: { name: string; bytes: number; sha256: string; sha512: string };
@@ -48,11 +48,11 @@ export function parseManifest(value: unknown): Manifest {
   const m = object(value);
   keys(m, ["schema", "repository", "repositoryId", "package", "version", "tag", "sourceSha", "workflow", "workflowSha", "runId", "runAttempt", "archive"]);
   versionParts(m.version);
-  requireThat(m.schema === "hraness-github-release-v1" && m.repository === REPOSITORY && m.repositoryId === REPOSITORY_ID && m.package === "@hraness/ensoul" && m.workflow === WORKFLOW, "Wrong release identity");
+  requireThat(m.schema === "hraness-github-release-v1" && m.repository === REPOSITORY && m.repositoryId === REPOSITORY_ID && m.package === "@hraness/soulscrape" && m.workflow === WORKFLOW, "Wrong release identity");
   requireThat(m.tag === `v${m.version}` && typeof m.sourceSha === "string" && SHA.test(m.sourceSha) && typeof m.workflowSha === "string" && SHA.test(m.workflowSha) && positive(m.runId) && positive(m.runAttempt), "Invalid release source or attempt");
   const a = object(m.archive);
   keys(a, ["name", "bytes", "sha256", "sha512"]);
-  requireThat(a.name === `hraness-ensoul-${m.version}.tgz` && positive(a.bytes) && a.bytes <= 512 * 1024 && typeof a.sha256 === "string" && /^[a-f0-9]{64}$/u.test(a.sha256) && typeof a.sha512 === "string" && /^[a-f0-9]{128}$/u.test(a.sha512), "Invalid archive identity");
+  requireThat(a.name === `hraness-soulscrape-${m.version}.tgz` && positive(a.bytes) && a.bytes <= 512 * 1024 && typeof a.sha256 === "string" && /^[a-f0-9]{64}$/u.test(a.sha256) && typeof a.sha512 === "string" && /^[a-f0-9]{128}$/u.test(a.sha512), "Invalid archive identity");
   return m as Manifest;
 }
 export const digest = (bytes: Uint8Array, algorithm = "sha256"): string => createHash(algorithm).update(bytes).digest("hex");
@@ -173,8 +173,8 @@ function controls(m: Manifest): void {
   requireThat(annotated.object?.type === "commit" && annotated.object.sha === m.sourceSha, "Release tag moved");
   const advertised = api("/commits/main").sha;
   requireThat(typeof advertised === "string" && SHA.test(advertised), "Invalid current main");
-  command("git", ["fetch", "--no-tags", "--force", "origin", "refs/heads/main:refs/remotes/ensoul-release-current/main"]);
-  const main = command("git", ["rev-parse", "refs/remotes/ensoul-release-current/main"]);
+  command("git", ["fetch", "--no-tags", "--force", "origin", "refs/heads/main:refs/remotes/soulscrape-release-current/main"]);
+  const main = command("git", ["rev-parse", "refs/remotes/soulscrape-release-current/main"]);
   requireThat(main === advertised, "Current main moved during authority import");
   for (const ancestor of [m.sourceSha, m.workflowSha]) command("git", ["merge-base", "--is-ancestor", ancestor, main]);
   command("git", ["diff", "--quiet", "--no-ext-diff", "--no-textconv", m.sourceSha, main, "--", WORKFLOW, ".github/workflows/npm-stage.yml"]);
@@ -190,10 +190,10 @@ function controls(m: Manifest): void {
   }
 }
 export function releaseBody(m: Manifest): string {
-  return `Automated immutable Ensoul release.\n\nSource: ${m.sourceSha}\nWorkflow: ${WORKFLOW}\nRun: https://github.com/${REPOSITORY}/actions/runs/${m.runId}/attempts/${m.runAttempt}\n\nInstall: npm install https://github.com/${REPOSITORY}/releases/download/${m.tag}/${m.archive.name}`;
+  return `Automated immutable Soulscrape release.\n\nSource: ${m.sourceSha}\nWorkflow: ${WORKFLOW}\nRun: https://github.com/${REPOSITORY}/actions/runs/${m.runId}/attempts/${m.runAttempt}\n\nInstall: npm install https://github.com/${REPOSITORY}/releases/download/${m.tag}/${m.archive.name}`;
 }
 export function verifyReleaseRecord(release: Json, m: Manifest, directory: string, allowDraft: boolean): void {
-  requireThat(positive(release.id) && release.tag_name === m.tag && release.name === `Ensoul ${m.tag}` && release.body === releaseBody(m) && release.target_commitish === m.sourceSha && release.prerelease === false && release.author?.id === BOT_ID && release.author?.login === "github-actions[bot]" && release.author?.type === "Bot", "Existing release has different source, owner, or run");
+  requireThat(positive(release.id) && release.tag_name === m.tag && release.name === `Soulscrape ${m.tag}` && release.body === releaseBody(m) && release.target_commitish === m.sourceSha && release.prerelease === false && release.author?.id === BOT_ID && release.author?.login === "github-actions[bot]" && release.author?.type === "Bot", "Existing release has different source, owner, or run");
   requireThat(release.draft === false ? release.immutable === true : allowDraft && release.draft === true && release.immutable !== true, "Release is not the expected draft or immutable record");
   requireThat(Array.isArray(release.assets) && release.assets.length <= 5 && (release.draft || release.assets.length === 5), "Unexpected release assets");
   const seen = new Set<string>(); const ids = new Set<number>();
@@ -217,7 +217,7 @@ function publish(directory: string): void {
     controls(m);
     release = object(JSON.parse(gh(["api", "--method", "POST", `/repos/${REPOSITORY}/releases`,
       "-f", `tag_name=${m.tag}`, "-f", `target_commitish=${m.sourceSha}`,
-      "-f", `name=Ensoul ${m.tag}`, "-f", `body=${releaseBody(m)}`,
+      "-f", `name=Soulscrape ${m.tag}`, "-f", `body=${releaseBody(m)}`,
       "-F", "draft=true", "-F", "prerelease=false"])));
     // The creation response is authoritative; draft discovery can omit a
     // newly created record. Retain its ID instead of querying the list again.
@@ -243,9 +243,9 @@ function prepare(directory: string): void {
   const pack = JSON.parse(file(directory, "npm-pack.json", 65536).toString("utf8"));
   requireThat(Array.isArray(pack) && pack.length === 1, "Expected one package");
   const record = object(pack[0]); versionParts(record.version);
-  requireThat(record.name === "@hraness/ensoul" && record.filename === `hraness-ensoul-${record.version}.tgz`, "Wrong packed package");
+  requireThat(record.name === "@hraness/soulscrape" && record.filename === `hraness-soulscrape-${record.version}.tgz`, "Wrong packed package");
   const archive = file(directory, record.filename, 512 * 1024);
-  const m = parseManifest({ schema: "hraness-github-release-v1", repository: REPOSITORY, repositoryId: REPOSITORY_ID, package: "@hraness/ensoul", version: record.version, tag: env("VERIFIED_TAG"), sourceSha: env("VERIFIED_SOURCE_SHA"), workflow: WORKFLOW, workflowSha: env("WORKFLOW_SHA"), runId: Number(env("GITHUB_RUN_ID")), runAttempt: Number(env("GITHUB_RUN_ATTEMPT")), archive: {name: record.filename, bytes: archive.length, sha256: digest(archive), sha512: digest(archive, "sha512")} });
+  const m = parseManifest({ schema: "hraness-github-release-v1", repository: REPOSITORY, repositoryId: REPOSITORY_ID, package: "@hraness/soulscrape", version: record.version, tag: env("VERIFIED_TAG"), sourceSha: env("VERIFIED_SOURCE_SHA"), workflow: WORKFLOW, workflowSha: env("WORKFLOW_SHA"), runId: Number(env("GITHUB_RUN_ID")), runAttempt: Number(env("GITHUB_RUN_ATTEMPT")), archive: {name: record.filename, bytes: archive.length, sha256: digest(archive), sha512: digest(archive, "sha512")} });
   writeFileSync(join(directory, "release-manifest.json"), `${JSON.stringify(m, null, 2)}\n`, {flag: "wx"});
   writeFileSync(join(directory, "SHA256SUMS"), assetNames(m).slice(0, 3).map(name => `${digest(file(directory, name))}  ${name}\n`).join(""), {flag: "wx"});
   verifyFiles(directory, false);
@@ -259,7 +259,7 @@ function downloadMirror(directory: string): void {
   requireThat(readdirSync(directory).length === 0, "Mirror destination must be empty");
   const release = api(`/releases/tags/v${version}`);
   requireThat(release.immutable === true && release.draft === false && Array.isArray(release.assets) && release.assets.length === 5, "Canonical immutable release is required before npm mirroring");
-  const names = [`hraness-ensoul-${version}.tgz`, "npm-pack.json", "release-manifest.json", "SHA256SUMS", "provenance.jsonl"];
+  const names = [`hraness-soulscrape-${version}.tgz`, "npm-pack.json", "release-manifest.json", "SHA256SUMS", "provenance.jsonl"];
   requireThat(JSON.stringify(release.assets.map((a: Json) => a.name).sort()) === JSON.stringify([...names].sort()), "Unexpected canonical assets");
   gh(["release", "download", `v${version}`, "--repo", REPOSITORY, "--dir", directory]);
   const m = verifyFiles(directory);

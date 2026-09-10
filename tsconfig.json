@@ -13,5 +13,5 @@
     "target": "ES2024",
     "types": ["bun"]
   },
-  "include": ["scripts", "skills/ensoul/scripts", "tests"]
+  "include": ["scripts", "skills/soulscrape/scripts", "tests"]
 }

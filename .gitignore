@@ -1,4 +1,9 @@
 node_modules/
 *.ensoul-source.json
 *-ensoul.md
+*-soulscrape.md
 .DS_Store
+site/.next/
+site/.vercel/
+site/next-env.d.ts
+site/tsconfig.tsbuildinfo
