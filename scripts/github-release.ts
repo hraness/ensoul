@@ -157,9 +157,34 @@ function verifyProvenance(directory: string, m: Manifest): void {
     verifyAttestationResult(verified, m, subjects);
   }
 }
-export function verifyAttempt(attempt: Json, m: Manifest, current: boolean): void {
+const CANONICAL_RELEASE_JOBS = Object.freeze([
+  "Authorize owner release tag", "Verify", "Attest verified package", "Publish canonical GitHub release",
+]);
+function verifyCanonicalJobs(value: unknown, m: Manifest): void {
+  const inventory = object(value);
+  requireThat(Array.isArray(inventory.jobs) && inventory.jobs.length <= 20 && inventory.total_count === inventory.jobs.length, "Expected one complete bounded canonical job inventory");
+  const jobs = inventory.jobs.map(object);
+  for (const name of CANONICAL_RELEASE_JOBS) {
+    const matches = jobs.filter((job: Json) => job.name === name);
+    requireThat(matches.length === 1, `Expected exactly one canonical ${name} job`);
+    const job = matches[0]!;
+    requireThat(job.run_id === m.runId && job.run_attempt === m.runAttempt && job.head_sha === m.sourceSha && job.status === "completed" && job.conclusion === "success", `Canonical ${name} job did not succeed in the signed receipt attempt`);
+  }
+}
+export function verifyAttempt(attempt: Json, m: Manifest, current: boolean, canonicalJobs?: unknown): void {
   requireThat(attempt.id === m.runId && attempt.run_attempt === m.runAttempt && attempt.workflow_id === WORKFLOW_ID && attempt.name === "release" && attempt.path === WORKFLOW && attempt.event === "push" && attempt.head_branch === m.tag && attempt.head_sha === m.sourceSha && attempt.actor?.id === OWNER_ID && attempt.actor?.type === "User" && attempt.triggering_actor?.id === OWNER_ID && attempt.triggering_actor?.type === "User" && attempt.repository?.id === REPOSITORY_ID && attempt.repository?.full_name === REPOSITORY && attempt.repository?.private === false, "Release attempt is not owner-authorized");
-  requireThat(current ? attempt.status === "in_progress" && attempt.conclusion === null : attempt.status === "completed" && attempt.conclusion === "success", "Release attempt has not passed the required state");
+  if (current) {
+    requireThat(attempt.status === "in_progress" && attempt.conclusion === null, "Release attempt has not passed the required state");
+  } else {
+    requireThat(attempt.status === "completed" && (attempt.conclusion === "success" || attempt.conclusion === "failure" && canonicalJobs !== undefined), "Release attempt has not passed the required state");
+    // Later npm failure does not revoke a Release already published by these exact jobs.
+    if (attempt.conclusion !== "success") verifyCanonicalJobs(canonicalJobs, m);
+  }
+}
+export function verifyLatestAttempt(attempt: Json, m: Manifest): void {
+  requireThat(positive(attempt.run_attempt) && attempt.run_attempt >= m.runAttempt, "Latest release attempt predates the signed receipt or has an invalid number");
+  // No canonical-job exception: recovery must finish the overall latest attempt successfully.
+  verifyAttempt(attempt, { ...m, runAttempt: attempt.run_attempt }, false);
 }
 function controls(m: Manifest): void {
   expectedIdentity(m);
@@ -265,7 +290,9 @@ function downloadMirror(directory: string): void {
   const m = verifyFiles(directory);
   requireThat(m.version === version && m.sourceSha === env("EXPECTED_SOURCE_SHA"), "Canonical artifact source differs from verified current main");
   verifyReleaseRecord(release, m, directory, false); verifyProvenance(directory, m);
-  verifyAttempt(api(`/actions/runs/${m.runId}/attempts/${m.runAttempt}`), m, false);
+  const attemptPath = `/actions/runs/${m.runId}/attempts/${m.runAttempt}`;
+  const receiptAttempt = api(attemptPath);
+  verifyAttempt(receiptAttempt, m, false, receiptAttempt.conclusion === "failure" ? api(`${attemptPath}/jobs?per_page=100`) : undefined);
   const tag = api(`/git/ref/tags/${m.tag}`);
   requireThat(tag.object?.type === "tag" && SHA.test(tag.object.sha ?? ""), "Canonical tag is not annotated");
   const annotated = api(`/git/tags/${tag.object.sha}`);
@@ -275,6 +302,7 @@ function downloadMirror(directory: string): void {
   requireThat(typeof current === "string" && SHA.test(current) && current === env("EXPECTED_WORKFLOW_SHA") && current === env("GITHUB_SHA") && env("GITHUB_REF") === "refs/heads/main", "Mirror workflow is no longer current main");
   const comparison = api(`/compare/${m.sourceSha}...${current}`);
   requireThat(comparison.status === "ahead" || comparison.status === "identical", "Canonical source is not on current main");
+  verifyLatestAttempt(api(`/actions/runs/${m.runId}`), m);
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assetNames, compareVersions, digest, parseManifest, releaseBody,
-  verifyAttestationResult, verifyAttempt, verifyFiles, verifyReleaseRecord, type Manifest,
+  verifyAttestationResult, verifyAttempt, verifyLatestAttempt, verifyFiles, verifyReleaseRecord, type Manifest,
 } from "../scripts/github-release.ts";
 
 function fixture() {
@@ -26,6 +26,12 @@ function fixture() {
   const assets=assetNames(m).map((name,i)=>({id:100+i,name,state:"uploaded",size:readFileSync(join(dir,name)).length,digest:`sha256:${digest(readFileSync(join(dir,name)))}`}));
   const release={id:77,tag_name:m.tag,name:`Soulscrape ${m.tag}`,body:releaseBody(m),target_commitish:m.sourceSha,prerelease:false,draft:false,immutable:true,author:{id:41898282,login:"github-actions[bot]",type:"Bot"},assets};
   return {root,dir,m,subjects,verified,attempt,release,cleanup:()=>rmSync(root,{recursive:true,force:true})};
+}
+
+function canonicalJobs(f: ReturnType<typeof fixture>) {
+  const names=["Authorize owner release tag","Verify","Attest verified package","Publish canonical GitHub release","Publish exact npm package","Admit the public npm package"];
+  const jobs=names.map((name,index)=>({id:5000+index,name,run_id:f.m.runId,run_attempt:f.m.runAttempt,head_sha:f.m.sourceSha,status:"completed",conclusion:index===5?"failure":"success"}));
+  return {total_count:jobs.length,jobs};
 }
 
 describe("canonical release evidence",()=>{
@@ -84,6 +90,50 @@ describe("canonical release evidence",()=>{
       expect(()=>verifyAttempt({...f.attempt,status:"completed",conclusion:"success"},f.m,false)).not.toThrow();
     } finally {f.cleanup();}
   });
+  test("admits a failed receipt attempt only with its exact successful canonical jobs",()=>{
+    const f=fixture();try {
+      const failed={...f.attempt,status:"completed",conclusion:"failure"};
+      const inventory=canonicalJobs(f);
+      expect(()=>verifyAttempt(failed,f.m,false,inventory)).not.toThrow();
+      expect(()=>verifyAttempt(failed,f.m,false)).toThrow("required state");
+      expect(()=>verifyAttempt(f.attempt,f.m,true,inventory)).not.toThrow();
+      for(const attempt of [failed,{...f.attempt,conclusion:"success"},{...f.attempt,status:"completed",conclusion:null}]) {
+        expect(()=>verifyAttempt(attempt,f.m,true,inventory)).toThrow("required state");
+      }
+      for(const patch of [{status:"in_progress",conclusion:null},{conclusion:"cancelled"},{conclusion:null},{run_attempt:2},{id:99},{head_sha:"e".repeat(40)},{head_branch:"v0.3.4"},{workflow_id:1},{path:"other.yml"},{event:"workflow_dispatch"},{actor:{id:99,type:"User"}},{triggering_actor:{id:99,type:"User"}},{repository:{id:1,full_name:f.m.repository,private:false}}]) {
+        expect(()=>verifyAttempt({...failed,...patch},f.m,false,inventory)).toThrow();
+      }
+      for(const mutate of [
+        (jobs: any[])=>{jobs[0].run_id=99;},
+        (jobs: any[])=>{jobs[1].run_attempt=2;},
+        (jobs: any[])=>{jobs[2].head_sha="e".repeat(40);},
+        (jobs: any[])=>{jobs[3].status="in_progress";},
+        (jobs: any[])=>{jobs[3].conclusion="failure";},
+        (jobs: any[])=>{jobs[2].conclusion="skipped";},
+        (jobs: any[])=>{jobs[3].conclusion="cancelled";},
+        (jobs: any[])=>{jobs.splice(3,1);},
+        (jobs: any[])=>{jobs.push({...jobs[1]});},
+        (jobs: any[])=>{jobs[1]=null;},
+      ]) {
+        const bad=structuredClone(inventory);mutate(bad.jobs);bad.total_count=bad.jobs.length;
+        expect(()=>verifyAttempt(failed,f.m,false,bad)).toThrow();
+      }
+      for(const bad of [null,[],{}, {jobs:[],total_count:0}, {...inventory,total_count:7}, {...inventory,total_count:"6"}, {jobs:Array(21).fill(inventory.jobs[0]),total_count:21}]) {
+        expect(()=>verifyAttempt(failed,f.m,false,bad)).toThrow();
+      }
+    } finally {f.cleanup();}
+  });
+  test("requires the latest attempt to succeed with the exact receipt source and owner identity",()=>{
+    const f=fixture();try {
+      const latest={...f.attempt,status:"completed",conclusion:"success",run_attempt:2};
+      expect(()=>verifyLatestAttempt(latest,f.m)).not.toThrow();
+      expect(()=>verifyLatestAttempt({...latest,run_attempt:1},f.m)).not.toThrow();
+      expect(()=>verifyLatestAttempt(latest,{...f.m,runAttempt:3})).toThrow("predates");
+      for(const patch of [{run_attempt:0},{run_attempt:-1},{run_attempt:1.5},{run_attempt:Number.MAX_SAFE_INTEGER+1},{run_attempt:"2"},{run_attempt:null},{status:"in_progress",conclusion:null},{status:"queued",conclusion:null},{conclusion:"failure"},{conclusion:"cancelled"},{conclusion:null},{id:99},{head_sha:"e".repeat(40)},{head_branch:"v0.3.4"},{workflow_id:1},{path:"other.yml"},{name:"other"},{event:"workflow_dispatch"},{actor:{id:99,type:"User"}},{actor:{id:894119,type:"Bot"}},{triggering_actor:{id:99,type:"User"}},{triggering_actor:{id:894119,type:"Bot"}},{repository:{id:1,full_name:f.m.repository,private:false}},{repository:{id:f.m.repositoryId,full_name:"hraness/copied",private:false}},{repository:{id:f.m.repositoryId,full_name:f.m.repository,private:true}}]) {
+        expect(()=>verifyLatestAttempt({...latest,...patch},f.m)).toThrow();
+      }
+    } finally {f.cleanup();}
+  });
   test("requires exact immutable provider record and reconciles only matching draft assets",()=>{
     const f=fixture();try {
       expect(()=>verifyReleaseRecord(f.release,f.m,f.dir,false)).not.toThrow();
@@ -96,7 +146,7 @@ describe("canonical release evidence",()=>{
 
 function installProviderMock(f: ReturnType<typeof fixture>) {
   const bin=join(f.root,"bin");mkdirSync(bin);
-  writeFileSync(join(f.root,"fixture.json"),JSON.stringify({manifest:f.m,verified:f.verified,attempt:f.attempt,release:f.release}));
+  writeFileSync(join(f.root,"fixture.json"),JSON.stringify({manifest:f.m,verified:f.verified,attempt:f.attempt,release:f.release,canonicalJobs:canonicalJobs(f),latestAttempt:{...f.attempt,status:"completed",conclusion:"success"}}));
   writeFileSync(join(bin,"gh"),`#!/usr/bin/env node
 const fs=require('node:fs'),path=require('node:path');
 const root=process.env.MOCK_ROOT,f=JSON.parse(fs.readFileSync(path.join(root,'fixture.json'),'utf8')),args=process.argv.slice(2),state=path.join(root,'release.json');
@@ -129,6 +179,8 @@ if(args[0]==='attestation'){
   else if(endpoint==='/repos/hraness/soulscrape/releases/77'){const release=read();output(process.env.MOCK_RELEASE_ID_DRIFT==='true'?{...release,id:78}:release);}
   else if(endpoint.endsWith('/releases/latest'))output(fs.existsSync(state)&&read().draft===false?read():{id:66,tag_name:process.env.MOCK_LATEST||'v0.3.2',draft:false,prerelease:false,immutable:true});
   else if(endpoint.includes('/releases/assets/')){const id=Number(endpoint.split('/').at(-1));const a=read().assets.find(a=>a.id===id);process.stdout.write(fs.readFileSync(path.join(root,'assets',a.name)));}
+  else if(endpoint.endsWith('/attempts/1/jobs?per_page=100'))output(f.canonicalJobs);
+  else if(endpoint==='/repos/hraness/soulscrape/actions/runs/12345')output(f.latestAttempt);
   else if(endpoint.endsWith('/attempts/1'))output(f.attempt);
   else if(endpoint.endsWith('/actions/workflows/345387950'))output({id:345387950,name:'release',path:f.manifest.workflow,state:'active'});
   else if(endpoint.endsWith('/git/ref/tags/v0.3.3'))output({object:{type:'tag',sha:'d'.repeat(40)}});
@@ -249,4 +301,37 @@ describe("delayed canonical npm mirror",()=>{
       expect(mock.calls().filter(c=>c[0]==="release"&&c[1]!=="download")).toHaveLength(0);
     } finally {f.cleanup();}
   });
+  test("admits the signed failed receipt only after its canonical jobs and latest recovery pass",()=>{
+    const f=fixture();try {
+      const mock=installProviderMock(f);
+      writeFileSync(mock.state,JSON.stringify(f.release));
+      const fixturePath=join(f.root,"fixture.json");
+      const original=JSON.parse(readFileSync(fixturePath,"utf8"));
+      original.attempt.status="completed";original.attempt.conclusion="failure";
+      original.latestAttempt.run_attempt=2;
+      writeFileSync(fixturePath,JSON.stringify(original));
+      const recovered=mock.mirror(join(f.root,"recovered"));
+      expect(recovered.stderr.toString()).toBe("");expect(recovered.exitCode).toBe(0);
+      const endpoints=mock.calls().flat();
+      expect(endpoints).toContain(`/repos/hraness/soulscrape/actions/runs/${f.m.runId}/attempts/1/jobs?per_page=100`);
+      expect(endpoints).toContain(`/repos/hraness/soulscrape/actions/runs/${f.m.runId}`);
+      expect(JSON.parse(readFileSync(join(f.root,"recovered","release-manifest.json"),"utf8")).runAttempt).toBe(1);
+      expect(mock.calls().filter(c=>c[0]==="release"&&c[1]!=="download")).toHaveLength(0);
+    } finally {f.cleanup();}
+  }, 10_000);
+  test("rejects a failed latest recovery despite successful original canonical jobs",()=>{
+    const f=fixture();try {
+      const mock=installProviderMock(f);
+      writeFileSync(mock.state,JSON.stringify(f.release));
+      const fixturePath=join(f.root,"fixture.json");
+      const original=JSON.parse(readFileSync(fixturePath,"utf8"));
+      original.attempt.status="completed";original.attempt.conclusion="failure";
+      original.latestAttempt.run_attempt=2;original.latestAttempt.conclusion="failure";
+      writeFileSync(fixturePath,JSON.stringify(original));
+      const failed=mock.mirror(join(f.root,"still-failed"));
+      expect(failed.exitCode).not.toBe(0);
+      expect(failed.stderr.toString()).toContain("required state");
+      expect(mock.calls().filter(c=>c[0]==="release"&&c[1]!=="download")).toHaveLength(0);
+    } finally {f.cleanup();}
+  }, 10_000);
 });

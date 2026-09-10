@@ -1,8 +1,8 @@
 {
-  "package": "@hraness/ensoul",
-  "skill": "ensoul",
-  "version": "0.3.5",
-  "releaseUrl": "https://github.com/hraness/ensoul/releases/tag/v0.3.5",
-  "archiveUrl": "https://github.com/hraness/ensoul/releases/download/v0.3.5/hraness-ensoul-0.3.5.tgz",
-  "skillInstall": "bunx skills add hraness/ensoul#v0.3.5 --skill ensoul"
+  "package": "@hraness/soulscrape",
+  "skill": "soulscrape",
+  "version": "0.4.0",
+  "releaseUrl": "https://github.com/hraness/soulscrape/releases/tag/v0.4.0",
+  "archiveUrl": "https://github.com/hraness/soulscrape/releases/download/v0.4.0/hraness-soulscrape-0.4.0.tgz",
+  "skillInstall": "bunx skills add hraness/soulscrape#v0.4.0 --skill soulscrape"
 }
