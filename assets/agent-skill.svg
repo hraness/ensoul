@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="132" height="20" viewBox="0 0 132 20" role="img" aria-label="Agent Skill: install">
+  <title>Agent Skill: install</title>
+  <clipPath id="badge"><rect width="132" height="20" rx="3"/></clipPath>
+  <g clip-path="url(#badge)">
+    <path fill="#41474e" d="M0 0h78v20H0z"/>
+    <path fill="#28634a" d="M78 0h54v20H78z"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,DejaVu Sans,sans-serif" font-size="11">
+    <text x="39" y="14">Agent Skill</text>
+    <text x="105" y="14">install</text>
+  </g>
+</svg>

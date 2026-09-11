@@ -223,6 +223,7 @@ describe("distribution identity", () => {
       "LICENSE",
       "README.md",
       "VERSION",
+      "assets/agent-skill.svg",
       "schema",
       "skills/soulscrape/agents",
       "skills/soulscrape/LICENSE",
@@ -231,7 +232,7 @@ describe("distribution identity", () => {
       "skills/soulscrape/scripts/*.ts",
       "skills/soulscrape/SKILL.md",
     ]);
-    expect(EXPECTED_PATHS.size).toBe(19);
+    expect(EXPECTED_PATHS.size).toBe(20);
     expect(EXPECTED_PATHS.has("DISCLOSURE")).toBe(false);
     expect(await Bun.file(join(ROOT, "DISCLOSURE")).exists()).toBe(false);
   });
@@ -308,9 +309,13 @@ describe("distribution identity", () => {
     }
   });
 
-  test("documents the official marketplace badge and release-pinned installs", () => {
+  test("documents an owned install badge and release-pinned installs", () => {
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
-    expect(readme).toContain("[![skills.sh](https://skills.sh/b/hraness/soulscrape)](https://skills.sh/hraness/soulscrape)");
+    expect(readme).toContain("[![Agent Skill: install](https://raw.githubusercontent.com/hraness/soulscrape/main/assets/agent-skill.svg)](https://github.com/hraness/soulscrape/tree/main/skills/soulscrape)");
+    expect(readme).not.toContain("https://skills.sh/b/");
+    const badge = readFileSync(join(ROOT, "assets/agent-skill.svg"), "utf8");
+    expect(badge).toContain('aria-label="Agent Skill: install"');
+    expect(badge).not.toMatch(/<script|\bon[a-z]+\s*=|(?:href|src)\s*=/iu);
     expect(readme).toContain(`bunx skills add hraness/soulscrape#v${version} --skill soulscrape`);
     expect(readme).toContain(`bun add --exact https://github.com/hraness/soulscrape/releases/download/v${version}/hraness-soulscrape-${version}.tgz`);
     expect(readme).toContain(`bun add --exact @hraness/soulscrape@${version}`);
@@ -318,16 +323,17 @@ describe("distribution identity", () => {
     expect(readme).toContain("[Website](https://soulscrape.com)");
   });
 
-  test("leads readers from the result through proof, boundaries, questions, and action", () => {
+  test("leads readers through first use, output, evidence, boundaries, and reference", () => {
     const readme = readFileSync(join(ROOT, "README.md"), "utf8");
     const headings = [
+      "## Install and build your first model",
       "## See the artifact first",
       "## How the working model is built",
-      "## One skill, three interfaces",
       "## Evidence you can inspect",
-      "## Where Soulscrape stops",
-      "## Questions before a run",
-      "## Start with one bounded corpus",
+      "## Privacy and use boundaries",
+      "## Prepare and validate source packets",
+      "## Package installation and vendoring",
+      "## Documentation and verification",
     ];
     for (const [index, heading] of headings.entries()) {
       expect(readme).toContain(heading);
@@ -340,7 +346,7 @@ describe("distribution identity", () => {
     const end = readme.indexOf("<!-- hraness:soulscrape-landing:end -->");
     expect(start).toBe(0);
     expect(end).toBeGreaterThan(readme.indexOf("## How the working model is built"));
-    expect(end).toBeLessThan(readme.indexOf("## One skill, three interfaces"));
+    expect(end).toBeLessThan(readme.indexOf("## Evidence you can inspect"));
   });
 });
 

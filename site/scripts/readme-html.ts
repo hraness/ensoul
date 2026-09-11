@@ -102,19 +102,23 @@ function assertFragmentsResolve(html: string): void {
 
 /** Extract the README block between the landing markers, excluding the title and badge lines. */
 export function extractLandingMarkdown(readme: string): string {
-  const start = readme.indexOf(LANDING_START_MARKER);
-  const end = readme.indexOf(LANDING_END_MARKER);
-  if (start !== 0 || end < 0 || end < start) {
-    throw new Error("README landing markers are missing or out of order");
+  const sourceLines = readme.split(/\r?\n/u);
+  const end = sourceLines.indexOf(LANDING_END_MARKER);
+  if (sourceLines[0] !== LANDING_START_MARKER || end < 1
+    || readme.split(LANDING_START_MARKER).length !== 2
+    || readme.split(LANDING_END_MARKER).length !== 2) {
+    throw new Error("README landing requires unique, ordered, own-line markers");
   }
-  const block = readme.slice(start + LANDING_START_MARKER.length, end).trim();
+  const block = sourceLines.slice(1, end).join("\n").trim();
   const lines = block.split("\n");
   const body = lines.filter((line, index) => !(index < 8 && (
     line.startsWith("# ")
     || line.startsWith("[![")
     || line.startsWith("[Website](")
   )));
-  return body.join("\n").trim();
+  const markdown = body.join("\n").trim();
+  if (markdown === "") throw new Error("README landing selection is empty");
+  return markdown;
 }
 
 export function renderReadmeHtml(source: string): string {
