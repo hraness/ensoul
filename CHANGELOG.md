@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Reorganized the README around skill installation, a first modeling request, the resulting Markdown document, and evidence and privacy boundaries. Repository-owned installation artwork replaces the unavailable directory badge, and absolute source links work from npm's README view.
+- Clarified package metadata and search terms while preserving the immutable GitHub archive and exact-byte npm distribution model.
+- Improved the website's header and Ask AI presentation. The README projection keeps installation commands bound to the verified published release.
+- Preserved the Agent Skill workflow, packet schema and identifiers, and source-preparation and validation behavior.
+
 ## 0.4.0
 
 - Renamed the project from Ensoul to Soulscrape: package `@hraness/soulscrape`, skill `soulscrape`, repository `hraness/soulscrape`, website soulscrape.com. The packet schema, its `ensoul.*` identifiers, the `*.ensoul-source.json` suffix, and the validator are unchanged.

@@ -17,6 +17,7 @@ export const EXPECTED_PATHS = new Set([
   "LICENSE",
   "README.md",
   "VERSION",
+  "assets/agent-skill.svg",
   "package.json",
   "schema/ensoul-source-packet-v1.schema.json",
   "skills/soulscrape/agents/openai.yaml",

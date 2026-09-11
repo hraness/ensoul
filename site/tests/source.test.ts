@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { renderLandingModule } from "../scripts/sync-readme.ts";
-import { extractLandingMarkdown, renderReadmeHtml } from "../scripts/readme-html.ts";
+import { projectPublishedInstall, renderLandingModule } from "../scripts/sync-readme.ts";
+import {
+  extractLandingMarkdown, LANDING_END_MARKER, LANDING_START_MARKER, renderReadmeHtml,
+} from "../scripts/readme-html.ts";
 import { landingHtml } from "../app/landing.generated.ts";
 
 const site = join(import.meta.dir, "..");
@@ -50,14 +52,26 @@ describe("Soulscrape site source contract", () => {
     expect(committed).toBe(fresh);
     const markdown = extractLandingMarkdown(readme);
     expect(markdown).not.toContain("# Soulscrape\n");
-    expect(markdown).not.toContain("[![skills.sh]");
+    expect(markdown).not.toContain("[![Agent Skill:");
+    expect(markdown).toContain("## Install and build your first model");
     expect(markdown).toContain("## See the artifact first");
     expect(markdown).toContain("## How the working model is built");
-    expect(markdown).not.toContain("## One skill, three interfaces");
+    expect(markdown).not.toContain("## Package installation and vendoring");
     expect(landingHtml).toContain('<h2 id="see-the-artifact-first">');
     expect(committed).toContain("questions.md");
     expect(committed).toContain("web-research.md");
     expect(committed).not.toContain("<script");
+  });
+
+  test("projects only the admitted skill install while source prepares a newer release", () => {
+    const source = "Before\n\nbunx skills add hraness/soulscrape#v8.0.0 --skill soulscrape\n\nAfter";
+    const admitted = { version: "7.9.0", skillInstall: "bunx skills add hraness/soulscrape#v7.9.0 --skill soulscrape" };
+    expect(projectPublishedInstall(source, admitted)).toBe(source.replace("v8.0.0", "v7.9.0"));
+    expect(() => projectPublishedInstall(source, { ...admitted, version: "7.9.0-beta" })).toThrow("stable version");
+    expect(() => projectPublishedInstall(source, { ...admitted, version: "9007199254740992.0.0" })).toThrow("stable version");
+    expect(() => projectPublishedInstall(source, { ...admitted, skillInstall: "bunx unreviewed-package" })).toThrow("does not match");
+    expect(() => projectPublishedInstall("No command", admitted)).toThrow("exactly one");
+    expect(() => projectPublishedInstall(`${source}\n${source}`, admitted)).toThrow("exactly one");
   });
 
   test("uses the shared Hraness design grammar and Ask AI links", async () => {
@@ -113,7 +127,7 @@ describe("Soulscrape site source contract", () => {
       lint: "eslint . --ignore-pattern .next",
       start: "next start",
       "sync:readme": "bun scripts/sync-readme.ts",
-      test: "bun test ./tests/source.test.ts ./tests/home.test.tsx",
+      test: "bun test ./tests/source.test.ts ./tests/home.test.tsx ./tests/ui-styles.test.tsx",
       typecheck: "tsc --noEmit",
     });
     expect(JSON.parse(vercelConfigSource)).toEqual({
@@ -130,6 +144,21 @@ describe("Soulscrape site source contract", () => {
 
 
 describe("README HTML boundary", () => {
+  test("requires one nonempty selection with unique own-line markers", () => {
+    const selected = `${LANDING_START_MARKER}\n# Soulscrape\n\nSelected content.\n${LANDING_END_MARKER}`;
+    expect(extractLandingMarkdown(selected)).toBe("Selected content.");
+    expect(extractLandingMarkdown(`${selected}\n\nUnrelated outside content.`)).toBe("Selected content.");
+    expect(extractLandingMarkdown(selected.replaceAll("\n", "\r\n"))).toBe("Selected content.");
+    for (const invalid of [
+      `${selected}\n${LANDING_START_MARKER}`,
+      `${selected}\n${LANDING_END_MARKER}`,
+      `${LANDING_END_MARKER}\nSelected\n${LANDING_START_MARKER}`,
+      selected.replace(`\n${LANDING_END_MARKER}`, LANDING_END_MARKER),
+      selected.replace(`${LANDING_START_MARKER}\n`, `${LANDING_START_MARKER}Inline\n`),
+    ]) expect(() => extractLandingMarkdown(invalid)).toThrow("unique, ordered, own-line");
+    expect(() => extractLandingMarkdown(`${LANDING_START_MARKER}\n# Soulscrape\n${LANDING_END_MARKER}`)).toThrow("empty");
+  });
+
   test("derives stable fragments from parsed heading text", () => {
     const html = renderReadmeHtml([
       "## **Hello** &amp; `world`",

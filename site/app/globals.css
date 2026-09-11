@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@hraness/ui/styles.css";
 @import "@hraness/design-kit/fonts.css";
 @import "@hraness/design-kit/product-marketing.css";
 @import "../vendor/hraness-paper/paper-theme.css";
