@@ -29,8 +29,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { color: "#faf7fb", media: "(prefers-color-scheme: light)" },
-    { color: "#161219", media: "(prefers-color-scheme: dark)" },
+    { color: "#f8f7f4", media: "(prefers-color-scheme: light)" },
+    { color: "#12100f", media: "(prefers-color-scheme: dark)" },
   ],
 };
 
@@ -38,7 +38,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html data-hraness-theme="paper" lang="en">
       <body>{children}</body>
     </html>
   );

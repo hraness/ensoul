@@ -73,7 +73,9 @@ describe("Soulscrape site source contract", () => {
     expect(home).toContain('<AskAiAboutThis className="ask-ai" url="https://soulscrape.com" />');
     expect(globals).toContain('@import "@hraness/design-kit/fonts.css"');
     expect(globals).toContain('@import "@hraness/design-kit/product-marketing.css"');
-    expect(globals).toContain('--font-text: "Nebula Sans"');
+    expect(globals).toContain('@import "../vendor/hraness-paper/paper-theme.css"');
+    expect(await read("vendor/hraness-paper/paper-theme.css")).toContain('--font-text: "Nebula Sans"');
+    expect(layout).toContain('data-hraness-theme="paper"');
     expect(globals).not.toMatch(/Georgia|Times New Roman/u);
     expect(layout).toContain('metadataBase: new URL("https://soulscrape.com")');
     expect(layout).toContain('url: "/favicon.svg"');
@@ -105,7 +107,8 @@ describe("Soulscrape site source contract", () => {
     expect(packageJson.engines).toEqual({ node: "24.x" });
     expect(scripts).toEqual({
       build: "next build --webpack",
-      check: "bun run sync:readme && bun run test && bun run lint && bun run typecheck && bun run build",
+      "check:theme": "bun scripts/check-paper-theme.mjs",
+      check: "bun run check:theme && bun run sync:readme && bun run test && bun run lint && bun run typecheck && bun run build",
       dev: "bun run sync:readme && next dev --webpack",
       lint: "eslint . --ignore-pattern .next",
       start: "next start",

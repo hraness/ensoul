@@ -1,41 +1,14 @@
 @import "tailwindcss";
 @import "@hraness/design-kit/fonts.css";
 @import "@hraness/design-kit/product-marketing.css";
+@import "../vendor/hraness-paper/paper-theme.css";
 
-/* Product palette. Light is the default; dark mirrors every token. The
- * marketing grammar reads these through the bindings below. */
+/* Product content stays local; the immutable Paper snapshot owns appearance. */
 :root {
-  color-scheme: light dark;
-  --background: #faf7fb;
-  --surface: #ffffff;
-  --foreground: #1d1620;
-  --muted: #655a6b;
-  --line: rgba(29, 22, 32, 0.12);
-  --inverse-background: #23182a;
-  --inverse-foreground: #f3ecf4;
-  --inverse: var(--inverse-background);
-  --font-text: "Nebula Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-heading: var(--font-text);
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --hraness-site-accent: #5b3a6e;
-  --hraness-site-accent-ink: #ffffff;
+  --inverse-background: var(--inverse);
   font-family: var(--font-text);
   font-synthesis: none;
   line-height: 1.55;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #161219;
-    --surface: #1e1822;
-    --foreground: #ece6ee;
-    --muted: #aca2b0;
-    --line: rgba(236, 230, 238, 0.14);
-    --inverse-background: #0f0a12;
-    --inverse-foreground: #f2ecf4;
-    --hraness-site-accent: #d8a8cc;
-    --hraness-site-accent-ink: #2a1230;
-  }
 }
 
 * {
@@ -195,3 +168,17 @@ samp {
 a { text-underline-offset: 0.18em; }
 :focus-visible { outline: 2px solid var(--hraness-site-accent); outline-offset: 4px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* Adapter for the pinned marketing components; upgrades stay independent. */
+[data-hraness-theme="paper"] .hraness-marketing-hero__heading {
+  font-size: var(--hraness-paper-heading-size);
+  line-height: var(--hraness-paper-heading-leading);
+  letter-spacing: var(--hraness-paper-heading-tracking);
+}
+[data-hraness-theme="paper"] :where(.hraness-marketing-section__heading, .hraness-marketing-install__heading, .hraness-marketing-interfaces__heading, .hraness-marketing-trust__heading, .hraness-marketing-questions__heading, .hraness-marketing-maker__heading, .hraness-marketing-cta__heading) {
+  font-size: var(--hraness-paper-section-heading-size);
+  line-height: var(--hraness-paper-heading-leading);
+}
+[data-hraness-theme="paper"] .hraness-marketing-hero__summary {
+  font-size: var(--hraness-paper-summary-size);
+}
