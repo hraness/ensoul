@@ -170,6 +170,13 @@ a { text-underline-offset: 0.18em; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 /* Adapter for the pinned marketing components; upgrades stay independent. */
+[data-hraness-theme="paper"] :where(.hraness-marketing-hero__eyebrow, .hraness-marketing-section__label, .hraness-marketing-interfaces__label, .hraness-marketing-trust__label, .hraness-marketing-questions__label, .hraness-marketing-maker__label, .hraness-marketing-cta__eyebrow) {
+  display: none;
+}
+/* Keep verified release details visible beneath the installation heading. */
+[data-hraness-theme="paper"] .hraness-marketing-install__eyebrow {
+  order: 1;
+}
 [data-hraness-theme="paper"] .hraness-marketing-hero__heading {
   font-size: var(--hraness-paper-heading-size);
   line-height: var(--hraness-paper-heading-leading);
