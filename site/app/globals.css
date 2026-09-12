@@ -173,6 +173,22 @@ samp {
   padding-inline: 1.25rem;
 }
 
+@media (max-width: 48rem) {
+  [data-hraness-marketing-preset="editorial"] .hraness-marketing-header__nav {
+    column-gap: 0.25rem;
+    justify-content: space-between;
+  }
+
+  [data-hraness-marketing-preset="editorial"] .hraness-marketing-header__nav a {
+    font-size: 0.875rem;
+  }
+
+  /* Leave breathing room below the two-row phone header after anchor jumps. */
+  [data-hraness-marketing-preset="editorial"] .hraness-marketing-page > [id] {
+    scroll-margin-block-start: 6rem;
+  }
+}
+
 ::selection { background: var(--hraness-site-accent); color: var(--hraness-site-accent-ink); }
 a { text-underline-offset: 0.18em; }
 :focus-visible { outline: 2px solid var(--hraness-site-accent); outline-offset: 4px; }

@@ -37,6 +37,11 @@ retains its own reading typography. Existing kit/UI versions and the Paper
 snapshot are unchanged; the separate marketing snapshot records its immutable
 source and file hashes.
 
+At phone widths, the five navigation links use the shared 14px text scale and
+a compact distributed gap so they fit below the brand at 375px and 390px.
+Homepage section anchors reserve 6rem above their section boundary for the
+sticky header and heading clearance.
+
 ## FINISH
 
 Check actual desktop and phone layouts in both themes, including the artifact,
