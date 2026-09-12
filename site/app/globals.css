@@ -3,6 +3,7 @@
 @import "@hraness/design-kit/fonts.css";
 @import "@hraness/design-kit/product-marketing.css";
 @import "../vendor/hraness-paper/paper-theme.css";
+@import "../vendor/hraness-marketing/product-marketing-preset.css";
 
 /* Product content stays local; the immutable Paper snapshot owns appearance. */
 :root {
@@ -78,6 +79,13 @@ samp {
   margin-top: 0.75rem;
 }
 
+.hraness-marketing-proof-frame__content > .transcript {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+}
+
 .install-note,
 .interface-link {
   margin: 0.9rem 0 0;
@@ -133,7 +141,7 @@ samp {
 .readme-prose blockquote {
   margin: 1rem 0;
   padding: 0.2rem 1rem;
-  border-left: 3px solid var(--hraness-site-accent);
+  border-left: 1px solid var(--line);
   color: var(--muted);
 }
 
@@ -169,24 +177,3 @@ samp {
 a { text-underline-offset: 0.18em; }
 :focus-visible { outline: 2px solid var(--hraness-site-accent); outline-offset: 4px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-
-/* Adapter for the pinned marketing components; upgrades stay independent. */
-[data-hraness-theme="paper"] :where(.hraness-marketing-hero__eyebrow, .hraness-marketing-section__label, .hraness-marketing-interfaces__label, .hraness-marketing-trust__label, .hraness-marketing-questions__label, .hraness-marketing-maker__label, .hraness-marketing-cta__eyebrow) {
-  display: none;
-}
-/* Keep verified release details visible beneath the installation heading. */
-[data-hraness-theme="paper"] .hraness-marketing-install__eyebrow {
-  order: 1;
-}
-[data-hraness-theme="paper"] .hraness-marketing-hero__heading {
-  font-size: var(--hraness-paper-heading-size);
-  line-height: var(--hraness-paper-heading-leading);
-  letter-spacing: var(--hraness-paper-heading-tracking);
-}
-[data-hraness-theme="paper"] :where(.hraness-marketing-section__heading, .hraness-marketing-install__heading, .hraness-marketing-interfaces__heading, .hraness-marketing-trust__heading, .hraness-marketing-questions__heading, .hraness-marketing-maker__heading, .hraness-marketing-cta__heading) {
-  font-size: var(--hraness-paper-section-heading-size);
-  line-height: var(--hraness-paper-heading-leading);
-}
-[data-hraness-theme="paper"] .hraness-marketing-hero__summary {
-  font-size: var(--hraness-paper-summary-size);
-}

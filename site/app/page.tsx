@@ -166,7 +166,7 @@ export default function Home() {
   ];
 
   return (
-    <>
+    <div data-hraness-marketing-preset="editorial">
       <script
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         type="application/ld+json"
@@ -181,6 +181,7 @@ export default function Home() {
 
       <main id="main" tabIndex={-1}>
         <MarketingPage>
+          <div className="hraness-marketing-field">
           <ProductHero
             actions={[
               { href: "#install", label: "Install the skill" },
@@ -188,7 +189,8 @@ export default function Home() {
             ]}
             boundary={footnote}
             className="soulscrape-marketing-hero"
-            eyebrow="An Agent Skill for evidence-calibrated person models"
+            eyebrow=""
+            example="An Agent Skill for evidence-calibrated person models"
             frame={(
               <MarketingProofFrame
                 caption="The shape of a well-supported result. Its sections follow the evidence rather than a personality template."
@@ -200,15 +202,16 @@ export default function Home() {
             )}
             heading={heading}
             headingId="hero-title"
-            name="Soulscrape"
+            name=""
             summary={lead}
           />
+          </div>
 
           <MarketingSection
             heading="From an authorized corpus to a working model."
             headingId="method-title"
             id="method"
-            label="The method"
+            label=""
             summary="Read the evidence, preserve contradictions, and make the limits of each conclusion visible."
           >
             <article
@@ -222,7 +225,7 @@ export default function Home() {
             headingId="boundaries-title"
             id="boundaries"
             items={trust}
-            label="Boundaries"
+            label=""
             summary="These are product boundaries, not optional cautions. The skill keeps them adjacent to corpus intake, synthesis, output design, and final verification."
           />
 
@@ -231,16 +234,17 @@ export default function Home() {
             headingId="interfaces-title"
             id="interfaces"
             interfaces={interfaces}
-            label="Interfaces"
+            label=""
             summary="The skill, the immutable package, and the source-packet contract are the same reviewed files. There is no separate hosted service."
           />
 
           <MarketingInstallPanel
-            eyebrow={`Current verified release · ${publishedRelease.package}@${releaseVersion}`}
+            eyebrow=""
             heading="Install and run one bounded corpus."
             headingId="install-title"
             id="install"
           >
+            <p className="install-note">{`Current verified release · ${publishedRelease.package}@${releaseVersion}`}</p>
             <pre className="install-command" tabIndex={0}><code>{publishedRelease.skillInstall}</code></pre>
             <pre className="install-command" tabIndex={0}><code>{`Use $${publishedRelease.skill} to build a dated, evidence-calibrated, partial and revisable working model of <person> from <authorized sources>. State the intended use, audience, source cutoff, and any proxy authorization explicitly.`}</code></pre>
             <p className="install-note">
@@ -254,7 +258,7 @@ export default function Home() {
             heading="Before you install."
             headingId="questions-title"
             id="questions"
-            label="Questions"
+            label=""
             questions={questions.map(({ answer, question }) => ({
               answer: <p>{answer}</p>,
               question,
@@ -265,7 +269,7 @@ export default function Home() {
             heading="Built by Ben Guo"
             headingId="maker-title"
             id="maker"
-            label="The maker"
+            label=""
             links={[
               { href: "https://hraness.com", label: "hraness.com" },
               { href: "https://x.com/hraness", label: "@hraness" },
@@ -303,6 +307,6 @@ export default function Home() {
           <a href="https://hraness.com/projects">Hraness projects</a>
         </nav>
       </footer>
-    </>
+    </div>
   );
 }

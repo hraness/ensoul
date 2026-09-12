@@ -17,3 +17,19 @@ test("renders the hero, the README method, boundaries, and the verified install"
   expect(html).toContain("What happened to Ensoul?");
   expect(html).not.toContain("undefined");
 });
+
+test("scopes editorial framing while keeping product positioning and release evidence visible", () => {
+  const html = renderToStaticMarkup(<Home />);
+  const elements: string[] = [];
+  new HTMLRewriter()
+    .on('[data-hraness-marketing-preset="editorial"] .hraness-marketing-header', {
+      element() { elements.push("header"); },
+    })
+    .on('[data-hraness-marketing-preset="editorial"] #main .hraness-marketing-field .hraness-marketing-proof-frame', {
+      element() { elements.push("proof"); },
+    })
+    .transform(html);
+  expect(elements).toEqual(["header", "proof"]);
+  expect(html).toContain('<p class="hraness-marketing-hero__example">An Agent Skill for evidence-calibrated person models</p>');
+  expect(html).toContain(`<p class="install-note">Current verified release · ${publishedRelease.package}@${publishedRelease.version}</p>`);
+});
